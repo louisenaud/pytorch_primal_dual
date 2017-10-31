@@ -324,7 +324,75 @@ class MaxMarginLoss(nn.Module):
     def __init__(self):
         super(MaxMarginLoss, self).__init__()
 
-    def forward(self, x, H, b, w):
+    def forward(self, x, H, b, w, x_gt):
+        """
+        Custom loss function for the generic ROF problem.
+        :param x:
+        :param H:
+        :param b:
+        :param w:
+        :return:
+        """
         fg = ForwardWeightedGradient()
-        output = torch.transpose(x, 0, 1) * x + torch.transpose(b, 0, 1) * x + torch.sum(torch.norm(fg.forward(x, w), 1))
-        return output
+        output1 = torch.transpose(b, 0, 1) * x + \
+                 torch.sum(torch.norm(fg.forward(x, w), 1))
+        output2 = max(torch.sum(torch.norm(x_gt - x, 2)) - torch.matmul(torch.transpose(b, 0, 1), x) -
+                                                           torch.sum(torch.norm(fg.forward(x, w), 1))
+                      , 0.0)
+        return output1 + output2
+
+
+class PrimalGeneralEnergy(nn.Module):
+    def __init__(self):
+        super(PrimalGeneralEnergy, self).__init__()
+
+    def forward(self, x, H, b, w):
+        """
+        Primal Energy for the General ROF model.
+        :param x:
+        :param H:
+        :param b:
+        :param w:
+        :return:
+        """
+        fg = ForwardWeightedGradient()
+        nrg1 = torch.sum(0.5 * torch.matmul(torch.transpose(x, 0, 1), torch.matmul(H, x))) + \
+               torch.sum(torch.matmul(torch.transpose(b, 0, 1), x))
+        nrg2 = torch.sum(torch.norm(fg.forward(x, w), 1))
+        return nrg1 + nrg2
+
+
+class DualGeneralEnergy(nn.Module):
+    def __init__(self):
+        super(DualGeneralEnergy, self).__init__()
+
+    def forward(self, x, H):
+        """
+        Dual Energy for the general ROF model.
+        :param x:
+        :param H:
+        :return:
+        """
+        nrg = torch.sum(-0.5*torch.matmul(torch.transpose(x), torch.matmul(H, x)))
+        return torch.sum(nrg)
+
+
+class PrimalDualGeneralGap(nn.Module):
+    def __init__(self):
+        super(PrimalDualGeneralGap, self).__init__()
+
+    def forward(self, x, H, b, w):
+        """
+
+        :param x:
+        :param H:
+        :param b:
+        :param w:
+        :return:
+        """
+        fg = ForwardWeightedGradient()
+        nrg1 = torch.sum(torch.matmul(torch.transpose(b, 0, 1), x))
+        nrg2 = torch.sum(torch.norm(fg.forward(x, w), 1))
+        nrg3 = torch.sum(torch.matmul(torch.transpose(x), torch.matmul(H, x)))
+        return nrg1 + nrg2 + nrg3
+
