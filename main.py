@@ -19,7 +19,6 @@ from torch.autograd import Variable
 import torchvision.transforms as transforms
 
 
-from differential_operators import backward_divergence, forward_gradient
 from primal_dual_model import PrimalDualNetwork
 
 
@@ -29,31 +28,6 @@ def penalization(x):
 
 def margin(x1, x2):
     return torch.norm(x1 - x2, 2)
-
-
-def dual_energy_tvl1(y, im_obs):
-    """
-    Compute the dual energy of TV-L1 problem.
-    :param y: pytorch Variable, [MxNx2]
-    :param im_obs: pytorch Variable, observed image
-    :return: float, dual energy
-    """
-    nrg = -0.5 * (im_obs - backward_divergence(y, torch.cuda.FloatTensor))**2
-    nrg = torch.sum(nrg)
-    return nrg
-
-
-def primal_energy_tvl1(x, img_obs, clambda):
-    """
-
-    :param x: pytorch Variables, [MxN]
-    :param img_obs: pytorch Variables [MxN], observed image
-    :param clambda: float, lambda parameter
-    :return: float, primal ROF energy
-    """
-    energy_reg = torch.sum(torch.norm(forward_gradient(x,torch.cuda.FloatTensor), 1))
-    energy_data_term = torch.sum(clambda * torch.abs(x - img_obs))
-    return energy_reg + energy_data_term
 
 
 # cuda
@@ -72,10 +46,8 @@ if __name__ == '__main__':
     pil2tensor = transforms.ToTensor()
     tensor2pil = transforms.ToPILImage()
 
-
-    t0 = time.time()
     # Create image to noise and denoise
-    sigma_n = 0.1
+    sigma_n = 0.09
     img_ = Image.open("images/image_Lena512.png")
     h, w = img_.size
     img_ref = Variable(pil2tensor(img_).cuda())
@@ -106,7 +78,10 @@ if __name__ == '__main__':
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.SGD(net.parameters(), lr=1e-4)
     loss_history = []
-    for t in range(800):
+    primal_history = []
+    dual_history = []
+    gap_history = []
+    for t in range(500):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -118,14 +93,20 @@ if __name__ == '__main__':
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        # Compute energies
+        pe = net.pe
+        de = net.de
+        primal_history.append(pe)
+        dual_history.append(de)
+        gap_history.append(pe - de)
 
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, sharex='col', sharey='row')
 
-    ax1.imshow(img_)
+    ax1.imshow(np.array(img_))
     ax1.set_title("Reference image")
-    ax2.imshow(tensor2pil(img_obs.data.cpu()))
+    ax2.imshow(np.array(tensor2pil(img_obs.data.cpu())))
     ax2.set_title("Observed image")
-    ax3.imshow(tensor2pil(x_pred.data.cpu()))
+    ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())))
     ax3.set_title("Denoised image")
 
     # Test image
@@ -138,7 +119,7 @@ if __name__ == '__main__':
     img_dn = net.forward(img_obs_t)
 
     f2, ((ax21, ax22), (ax23, ax24)) = plt.subplots(2, 2, sharex='col', sharey='row')
-    ax21.imshow(img_t)
+    ax21.imshow(np.array(img_t))
     ax21.set_title("Reference image")
     ax22.imshow(img_obs_t.data.cpu().mul_(255).numpy().reshape(512, 512))
     ax22.set_title("Observed image")
@@ -149,4 +130,8 @@ if __name__ == '__main__':
     plt.figure()
     x = range(len(loss_history))
     plt.plot(x, np.asarray(loss_history))
+
+    plt.figure()
+    x = range(len(gap_history))
+    plt.plot(x, np.asarray(gap_history))
     plt.show()
