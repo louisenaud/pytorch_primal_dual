@@ -44,13 +44,11 @@ class ForwardWeightedGradient(nn.Module):
         :return: 
         """
         im_size = x.size()
-        gradient = Variable(torch.zeros((2, im_size[1], im_size[2])).type(dtype))  # Allocate gradient array
+        gradient = Variable(torch.zeros((2, im_size[1], im_size[2]))).cuda() # Allocate gradient array
         # Horizontal direction
         gradient[0, :, :-1] = x[0, :, 1:] - x[0, :, :-1]
         # Vertical direction
         gradient[1, :-1, :] = x[0, 1:, :] - x[0, :-1, :]
-        print(gradient.data)
-        print(w.data)
         gradient = gradient * w
         return gradient
 
@@ -59,10 +57,10 @@ class BackwardDivergence(nn.Module):
     def __init__(self):
         super(BackwardDivergence, self).__init__()
 
-    def forward(self, y, dtype=torch.FloatTensor):
+    def forward(self, y, dtype=torch.cuda.FloatTensor):
         """
         
-        :param y: 
+        :param y: pytorch Variable, gradient
         :param dtype: 
         :return: 
         """
@@ -82,6 +80,36 @@ class BackwardDivergence(nn.Module):
         # Divergence
         div = d_h + d_v
         return div
+
+
+class BackwardWeightedDivergence(nn.Module):
+    def __init__(self):
+        super(BackwardWeightedDivergence, self).__init__()
+
+    def forward(self, y, w, dtype=torch.cuda.FloatTensor):
+        """
+
+        :param y: pytorch Variable, gradient
+        :param dtype:
+        :return:
+        """
+        im_size = y.size()
+        # Horizontal direction
+        d_h = Variable(torch.zeros((1, im_size[1], im_size[2])).type(dtype))
+        d_h[0, :, 0] = y[0, :, 0]
+        d_h[0, :, 1:-1] = y[0, :, 1:-1] - y[0, :, :-2]
+        d_h[0, :, -1] = -y[0, :, -2:-1]
+
+        # Vertical direction
+        d_v = Variable(torch.zeros((1, im_size[1], im_size[2])).type(dtype))
+        d_v[0, 0, :] = y[1, 0, :]
+        d_v[0, 1:-1, :] = y[1, 1:-1, :] - y[1, :-2, :]
+        d_v[0, -1, :] = -y[1, -2:-1, :]
+
+        # Divergence
+        div = d_h + d_v
+        div = w * div
+        return torch.sum(div)
 
 
 class ProximalLinfBall(nn.Module):
@@ -154,6 +182,26 @@ class PrimalUpdate(nn.Module):
         return x
 
 
+class PrimalWeightedUpdate(nn.Module):
+    def __init__(self, lambda_rof, tau):
+        super(PrimalWeightedUpdate, self).__init__()
+        self.backward_div = BackwardWeightedDivergence()
+        self.tau = tau
+        self.lambda_rof = lambda_rof
+
+    def forward(self, x, y, img_obs, w):
+        """
+
+        :param x:
+        :param y:
+        :param img_obs:
+        :return:
+        """
+        x = (x + self.tau * self.backward_div.forward(y, w) +
+             self.lambda_rof * self.tau * img_obs) / (1.0 + self.lambda_rof * self.tau)
+        return x
+
+
 class PrimalRegularization(nn.Module):
     def __init__(self, theta):
         super(PrimalRegularization, self).__init__()
@@ -205,20 +253,47 @@ class DualWeightedUpdate(nn.Module):
         :param w: 
         :return: 
         """
-        if y.is_cuda:
-            y = y + self.sigma * self.forward_grad.forward(x_tilde, w, dtype=torch.cuda.FloatTensor)
-        else:
-            y = y + self.sigma * self.forward_grad.forward(x_tilde, w, dtype=torch.FloatTensor)
+        y = y + self.sigma * self.forward_grad.forward(x_tilde, w)
         return y
+
+
+class PrimalEnergyROF(nn.Module):
+    def __init__(self):
+        """
+
+        """
+        super(PrimalEnergyROF, self).__init__()
+
+    def forward(self, x, img_obs, clambda):
+        """
+
+        :param x: pytorch Variables, [MxN]
+        :param img_obs: pytorch Variable [MxN], observed image
+        :param clambda: float, lambda parameter
+        :return: float, primal ROF energy
+        """
+        g = ForwardWeightedGradient()
+        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), torch.cuda.FloatTensor), 1))
+        energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
+        return energy_reg + energy_data_term
 
 
 class PrimalDualNetwork(nn.Module):
     def __init__(self, w, max_it=30, lambda_rof=7.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+        """
+
+        :param w:
+        :param max_it:
+        :param lambda_rof:
+        :param sigma:
+        :param tau:
+        :param theta:
+        """
         super(PrimalDualNetwork, self).__init__()
         self.max_it = max_it
         self.dual_update = DualWeightedUpdate(sigma)
         self.prox_l_inf = ProximalLinfBall()
-        self.primal_update = PrimalUpdate(lambda_rof, tau)
+        self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
         self.primal_reg = PrimalRegularization(theta)
 
         self.energy_primal = PrimalEnergyROF()
@@ -239,6 +314,8 @@ class PrimalDualNetwork(nn.Module):
         img_size = img_obs.size()
         x_old = x.clone().cuda()
         y = Variable(torch.zeros((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
+        fg = ForwardWeightedGradient()
+        bd = BackwardWeightedDivergence()
 
         for it in range(self.max_it):
             # Dual update
@@ -246,18 +323,27 @@ class PrimalDualNetwork(nn.Module):
             y = self.prox_l_inf.forward(y, 1.0)
             # Primal update
             x_old = x
-            x = self.primal_update.forward(x, y, img_obs)
+            x = self.primal_update.forward(x, y, img_obs, self.w.cuda())
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
+            if it == 0:
+                grad = fg.forward(x, self.w.cuda()).cuda()
+                div = bd.forward(grad, self.w.cuda())
+                te = grad*y + div*x
+                print(torch.sum(te))
             # Compute energies
             self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.clambda)
             self.de = self.energy_dual.forward(y, img_obs)
+        x_np = x_tilde.data.cpu().mul_(255).numpy()
 
         return x_tilde
 
 
 class PrimalEnergyROF(nn.Module):
     def __init__(self):
+        """
+
+        """
         super(PrimalEnergyROF, self).__init__()
 
     def forward(self, x, img_obs, clambda):
@@ -269,7 +355,7 @@ class PrimalEnergyROF(nn.Module):
         :return: float, primal ROF energy
         """
         g = ForwardWeightedGradient()
-        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), torch.cuda.FloatTensor), 1))
+        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), img_obs, clambda), 1))
         energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
         return energy_reg + energy_data_term
 
@@ -320,7 +406,8 @@ class PrimalDualGap(nn.Module):
         :param y: pytorch Variable, [2xMxN]
         :param im_obs: pytorch Variable, [1xMxN], observed image
         :param clambda: float > 0
-        :return: float > 0
+        :return: float > 0    w = nn.Parameter(torch.zeros(y.size()))
+
         """
         dual = DualEnergyROF()
         primal = PrimalEnergyROF()

@@ -19,7 +19,7 @@ from torch.autograd import Variable
 import torchvision.transforms as transforms
 
 
-from primal_dual_model import PrimalDualNetwork
+from primal_dual_model import PrimalDualNetwork, ForwardGradient, BackwardDivergence
 
 
 def penalization(x):
@@ -28,6 +28,14 @@ def penalization(x):
 
 def margin(x1, x2):
     return torch.norm(x1 - x2, 2)
+
+
+def test_operators_adjoints(x, y):
+    fg = ForwardGradient()
+    bd = BackwardDivergence()
+    gradx = fg.forward(x).cuda()
+    divy = bd.forward(y).cuda()
+    return torch.sum(gradx * y + divy * x)
 
 
 # cuda
@@ -73,7 +81,7 @@ if __name__ == '__main__':
     y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2]))).cuda()
 
     # Net approach
-    w = nn.Parameter(torch.zeros(y.size()))
+    w = nn.Parameter(torch.rand(y.size()))
     net = PrimalDualNetwork(w)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.SGD(net.parameters(), lr=1e-4)
@@ -81,7 +89,7 @@ if __name__ == '__main__':
     primal_history = []
     dual_history = []
     gap_history = []
-    for t in range(500):
+    for t in range(100):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -94,8 +102,8 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
         # Compute energies
-        pe = net.pe
-        de = net.de
+        pe = net.pe.data[0]
+        de = net.de.data[0]
         primal_history.append(pe)
         dual_history.append(de)
         gap_history.append(pe - de)
@@ -132,6 +140,17 @@ if __name__ == '__main__':
     plt.plot(x, np.asarray(loss_history))
 
     plt.figure()
+    x = range(len(primal_history))
+    plt.plot(x, np.asarray(primal_history))
+    plt.title("Primal")
+
+    plt.figure()
+    x = range(len(dual_history))
+    plt.plot(x, np.asarray(dual_history))
+    plt.title("Dual")
+
+    plt.figure()
     x = range(len(gap_history))
     plt.plot(x, np.asarray(gap_history))
+    plt.title("Gap")
     plt.show()
