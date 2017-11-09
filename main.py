@@ -81,7 +81,7 @@ if __name__ == '__main__':
     y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2]))).cuda()
 
     # Net approach
-    w = nn.Parameter(torch.rand(y.size()))
+    w = nn.Parameter(torch.zeros(y.size()))
     net = PrimalDualNetwork(w)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.SGD(net.parameters(), lr=1e-4)

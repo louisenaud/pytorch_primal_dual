@@ -94,21 +94,21 @@ class BackwardWeightedDivergence(nn.Module):
         :return:
         """
         im_size = y.size()
+        y_w = w * y
         # Horizontal direction
         d_h = Variable(torch.zeros((1, im_size[1], im_size[2])).type(dtype))
-        d_h[0, :, 0] = y[0, :, 0]
-        d_h[0, :, 1:-1] = y[0, :, 1:-1] - y[0, :, :-2]
-        d_h[0, :, -1] = -y[0, :, -2:-1]
+        d_h[0, :, 0] = y_w[0, :, 0]
+        d_h[0, :, 1:-1] = y_w[0, :, 1:-1] - y_w[0, :, :-2]
+        d_h[0, :, -1] = -y_w[0, :, -2:-1]
 
         # Vertical direction
         d_v = Variable(torch.zeros((1, im_size[1], im_size[2])).type(dtype))
-        d_v[0, 0, :] = y[1, 0, :]
-        d_v[0, 1:-1, :] = y[1, 1:-1, :] - y[1, :-2, :]
-        d_v[0, -1, :] = -y[1, -2:-1, :]
+        d_v[0, 0, :] = y_w[1, 0, :]
+        d_v[0, 1:-1, :] = y_w[1, 1:-1, :] - y_w[1, :-2, :]
+        d_v[0, -1, :] = -y_w[1, -2:-1, :]
 
         # Divergence
         div = d_h + d_v
-        div = w * div
         return torch.sum(div)
 
 
@@ -259,9 +259,6 @@ class DualWeightedUpdate(nn.Module):
 
 class PrimalEnergyROF(nn.Module):
     def __init__(self):
-        """
-
-        """
         super(PrimalEnergyROF, self).__init__()
 
     def forward(self, x, img_obs, clambda):
@@ -312,10 +309,7 @@ class PrimalDualNetwork(nn.Module):
         x = img_obs.clone().cuda()
         x_tilde = img_obs.clone().cuda()
         img_size = img_obs.size()
-        x_old = x.clone().cuda()
-        y = Variable(torch.zeros((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
-        fg = ForwardWeightedGradient()
-        bd = BackwardWeightedDivergence()
+        y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
 
         for it in range(self.max_it):
             # Dual update
@@ -326,15 +320,10 @@ class PrimalDualNetwork(nn.Module):
             x = self.primal_update.forward(x, y, img_obs, self.w.cuda())
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
-            if it == 0:
-                grad = fg.forward(x, self.w.cuda()).cuda()
-                div = bd.forward(grad, self.w.cuda())
-                te = grad*y + div*x
-                print(torch.sum(te))
             # Compute energies
             self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.clambda)
             self.de = self.energy_dual.forward(y, img_obs)
-        x_np = x_tilde.data.cpu().mul_(255).numpy()
+        #x_np = x_tilde.data.cpu().mul_(255).numpy()
 
         return x_tilde
 
