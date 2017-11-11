@@ -18,6 +18,7 @@ from torch.autograd import Variable
 
 import torchvision.transforms as transforms
 
+import prox_tv
 
 from primal_dual_model import PrimalDualNetwork, ForwardGradient, BackwardDivergence
 
@@ -55,13 +56,25 @@ if __name__ == '__main__':
     tensor2pil = transforms.ToPILImage()
 
     # Create image to noise and denoise
-    sigma_n = 0.09
+    sigma_n = 0.1
     img_ = Image.open("images/image_Lena512.png")
     h, w = img_.size
     img_ref = Variable(pil2tensor(img_).cuda())
     noise = torch.ones(img_ref.size())
     noise = Variable(noise.normal_(0.0, sigma_n)).cuda()
     img_obs = img_ref + noise
+    img_n = img_obs.data.cpu().numpy().reshape((512, 512))
+    print(img_n.shape)
+    print(np.random.rand(h-1, w).shape)
+    w_c = (1. / 7.)*np.ones((h-1, w))
+    w_h = (1. / 7.)*np.ones((h, w-1))
+    img_res = prox_tv.tv1w_2d(img_n, w_c, w_h, max_iters=10)
+
+    plt.figure(1)
+    plt.imshow(img_n)
+
+    plt.figure(10)
+    plt.imshow(img_res)
 
     loader = transforms.Compose([
         transforms.Scale(imsize),  # scale imported image
@@ -69,27 +82,31 @@ if __name__ == '__main__':
     # Parameters
     norm_l = 7.0
     max_it = 200
-    theta = 1.0
+    theta = 0.8
     tau = 0.01
     sigma = 1.0 / (norm_l * tau)
     #lambda_TVL1 = 1.0
-    lambda_rof = 7.0
+    lambda_rof = 7.0  # 7.0
 
     x = Variable(img_obs.data.clone()).cuda()
     x_tilde = Variable(img_obs.data.clone()).cuda()
     img_size = img_ref.size()
     y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2]))).cuda()
-
+    y = ForwardGradient().forward(x)
     # Net approach
-    w = nn.Parameter(torch.zeros(y.size()))
+    w = nn.Parameter(torch.ones(y.size()).cuda())
     net = PrimalDualNetwork(w)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.SGD(net.parameters(), lr=1e-4)
+    params = list(net.parameters())
+    print(len(params))
+    print(params[0].size())  # conv1's .weight
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
-    for t in range(100):
+    learning_rate = 1e-4
+    for t in range(500):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -116,6 +133,7 @@ if __name__ == '__main__':
     ax2.set_title("Observed image")
     ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())))
     ax3.set_title("Denoised image")
+    ax4.imshow(np.abs(np.array(tensor2pil(img_obs.data.cpu())) - np.array(tensor2pil(x_pred.data.cpu()))))
 
     # Test image
     img_t = Image.open("images/image_Barbara512.png")

@@ -94,7 +94,7 @@ class BackwardWeightedDivergence(nn.Module):
         :return:
         """
         im_size = y.size()
-        y_w = w * y
+        y_w = w.cuda() * y
         # Horizontal direction
         d_h = Variable(torch.zeros((1, im_size[1], im_size[2])).type(dtype))
         d_h[0, :, 0] = y_w[0, :, 0]
@@ -109,7 +109,7 @@ class BackwardWeightedDivergence(nn.Module):
 
         # Divergence
         div = d_h + d_v
-        return torch.sum(div)
+        return div
 
 
 class ProximalLinfBall(nn.Module):
@@ -257,26 +257,26 @@ class DualWeightedUpdate(nn.Module):
         return y
 
 
-class PrimalEnergyROF(nn.Module):
-    def __init__(self):
-        super(PrimalEnergyROF, self).__init__()
-
-    def forward(self, x, img_obs, clambda):
-        """
-
-        :param x: pytorch Variables, [MxN]
-        :param img_obs: pytorch Variable [MxN], observed image
-        :param clambda: float, lambda parameter
-        :return: float, primal ROF energy
-        """
-        g = ForwardWeightedGradient()
-        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), torch.cuda.FloatTensor), 1))
-        energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
-        return energy_reg + energy_data_term
+# class PrimalEnergyROF(nn.Module):
+#     def __init__(self):
+#         super(PrimalEnergyROF, self).__init__()
+#
+#     def forward(self, x, img_obs, clambda):
+#         """
+#
+#         :param x: pytorch Variables, [MxN]
+#         :param img_obs: pytorch Variable [MxN], observed image
+#         :param clambda: float, lambda parameter
+#         :return: float, primal ROF energy
+#         """
+#         g = ForwardWeightedGradient()
+#         energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), torch.cuda.FloatTensor), 1))
+#         energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
+#         return energy_reg + energy_data_term
 
 
 class PrimalDualNetwork(nn.Module):
-    def __init__(self, w, max_it=30, lambda_rof=7.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+    def __init__(self, w, max_it=10, lambda_rof=7.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
         """
 
         :param w:
@@ -321,8 +321,8 @@ class PrimalDualNetwork(nn.Module):
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
             # Compute energies
-            self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.clambda)
-            self.de = self.energy_dual.forward(y, img_obs)
+            self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
+            self.de = self.energy_dual.forward(y, img_obs, self.w)
         #x_np = x_tilde.data.cpu().mul_(255).numpy()
 
         return x_tilde
@@ -335,17 +335,18 @@ class PrimalEnergyROF(nn.Module):
         """
         super(PrimalEnergyROF, self).__init__()
 
-    def forward(self, x, img_obs, clambda):
+    def forward(self, x, img_obs, w, clambda):
         """
 
         :param x: pytorch Variables, [MxN]
         :param img_obs: pytorch Variable [MxN], observed image
+        :param w: pytorch Variable
         :param clambda: float, lambda parameter
         :return: float, primal ROF energy
         """
         g = ForwardWeightedGradient()
-        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), img_obs, clambda), 1))
-        energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
+        energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), w), 1))
+        energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2)**2)
         return energy_reg + energy_data_term
 
 
@@ -371,15 +372,15 @@ class DualEnergyROF(nn.Module):
     def __init__(self):
         super(DualEnergyROF, self).__init__()
 
-    def forward(self, y, im_obs):
+    def forward(self, y, im_obs, w):
         """
         Compute the dual energy of ROF problem.
         :param y: pytorch Variable, [MxNx2]
         :param im_obs: pytorch Variables [MxN], observed image
         :return: float, dual energy
         """
-        d = BackwardDivergence()
-        nrg = -0.5 * (im_obs - d.forward(y, torch.cuda.FloatTensor)) ** 2
+        d = BackwardWeightedDivergence()
+        nrg = -0.5 * (im_obs + d.forward(y, w, torch.cuda.FloatTensor)) ** 2
         nrg = torch.sum(nrg)
         return nrg
 
