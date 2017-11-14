@@ -18,6 +18,7 @@ from torch.autograd import Variable
 
 import torchvision.transforms as transforms
 
+import png
 import prox_tv
 
 from primal_dual_model import PrimalDualNetwork, ForwardGradient, BackwardDivergence
@@ -64,21 +65,11 @@ if __name__ == '__main__':
     noise = Variable(noise.normal_(0.0, sigma_n)).cuda()
     img_obs = img_ref + noise
     img_n = img_obs.data.cpu().numpy().reshape((512, 512))
-    print(img_n.shape)
-    print(np.random.rand(h-1, w).shape)
-    w_c = (1. / 7.)*np.ones((h-1, w))
-    w_h = (1. / 7.)*np.ones((h, w-1))
-    img_res = prox_tv.tv1w_2d(img_n, w_c, w_h, max_iters=10)
-
-    plt.figure(1)
-    plt.imshow(img_n)
-
-    plt.figure(10)
-    plt.imshow(img_res)
 
     loader = transforms.Compose([
         transforms.Scale(imsize),  # scale imported image
         transforms.ToTensor()])  # transform it into a torch tensor
+
     # Parameters
     norm_l = 7.0
     max_it = 200
@@ -86,27 +77,33 @@ if __name__ == '__main__':
     tau = 0.01
     sigma = 1.0 / (norm_l * tau)
     #lambda_TVL1 = 1.0
-    lambda_rof = 7.0  # 7.0
+    lambda_rof = 8.0  # 7.0
 
     x = Variable(img_obs.data.clone()).cuda()
     x_tilde = Variable(img_obs.data.clone()).cuda()
     img_size = img_ref.size()
     y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2]))).cuda()
     y = ForwardGradient().forward(x)
+
     # Net approach
-    w = nn.Parameter(torch.ones(y.size()).cuda())
+    w = nn.Parameter(torch.randn(y.size()).cuda())
+    n_w = torch.norm(w, 1, dim=0)
+    plt.figure()
+    plt.imshow(n_w.data.cpu().numpy())
+    plt.colorbar()
+
     net = PrimalDualNetwork(w)
     criterion = torch.nn.MSELoss(size_average=False)
-    optimizer = torch.optim.SGD(net.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(net.parameters(), lr=1e-2)
     params = list(net.parameters())
     print(len(params))
-    print(params[0].size())  # conv1's .weight
+    print(params[0].size())
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
-    for t in range(500):
+    for t in range(200):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -129,15 +126,23 @@ if __name__ == '__main__':
 
     ax1.imshow(np.array(img_))
     ax1.set_title("Reference image")
-    ax2.imshow(np.array(tensor2pil(img_obs.data.cpu())))
+    ax2.imshow(np.array(tensor2pil(img_obs.data.cpu())).reshape(512, 512))
     ax2.set_title("Observed image")
-    ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())))
+    ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
     ax3.set_title("Denoised image")
     ax4.imshow(np.abs(np.array(tensor2pil(img_obs.data.cpu())) - np.array(tensor2pil(x_pred.data.cpu()))))
+    print(gap_history[-1])
 
+    f = open('lena_noised.png', 'wb')
+    w1 = png.Writer(512, 512, greyscale=True)
+    w1.write(f, np.array(tensor2pil(img_obs.data.cpu())))
+    f.close()
+    f_res = open('lena_denoised.png', 'wb')
+    w1.write(f_res, np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
+    f_res.close()
     # Test image
     img_t = Image.open("images/image_Barbara512.png")
-    h, w = img_t.size
+    h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).cuda())
     noise_2 = torch.ones(img_ref_t.size())
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n)).cuda()
@@ -151,6 +156,17 @@ if __name__ == '__main__':
     ax22.set_title("Observed image")
     ax23.imshow(img_dn.data.cpu().mul_(255).numpy().reshape(512, 512))
     ax23.set_title("Denoised image")
+
+    #n_w = torch.norm(w, 1, dim=0)
+    np_w = w.data.cpu().numpy()
+    #latestDs = np_w / np.sum(np_w, axis=1)[:, None]
+    row_sums = np_w.sum(axis=0)
+    latestDs = np_w / row_sums[:, :, np.newaxis]
+    I = np.argsort(latestDs.dot(np.arange(latestDs.shape[1])))
+    latestDs = np_w[I]
+    plt.figure()
+    plt.imshow(latestDs)
+    plt.colorbar()
 
     # Plot loss
     plt.figure()
