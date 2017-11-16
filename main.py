@@ -86,7 +86,7 @@ if __name__ == '__main__':
     y = ForwardGradient().forward(x)
 
     # Net approach
-    w = nn.Parameter(torch.randn(y.size()).cuda())
+    w = nn.Parameter(torch.rand(y.size()).cuda())
     n_w = torch.norm(w, 1, dim=0)
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
-    for t in range(200):
+    for t in range(80):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -157,15 +157,9 @@ if __name__ == '__main__':
     ax23.imshow(img_dn.data.cpu().mul_(255).numpy().reshape(512, 512))
     ax23.set_title("Denoised image")
 
-    #n_w = torch.norm(w, 1, dim=0)
-    np_w = w.data.cpu().numpy()
-    #latestDs = np_w / np.sum(np_w, axis=1)[:, None]
-    row_sums = np_w.sum(axis=0)
-    latestDs = np_w / row_sums[:, :, np.newaxis]
-    I = np.argsort(latestDs.dot(np.arange(latestDs.shape[1])))
-    latestDs = np_w[I]
+
     plt.figure()
-    plt.imshow(latestDs)
+    plt.imshow(w.data[0].cpu().numpy())
     plt.colorbar()
 
     # Plot loss
