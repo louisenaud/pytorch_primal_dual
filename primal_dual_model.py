@@ -8,7 +8,6 @@ At:         4:19 PM
 from torch.autograd import Variable
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class ForwardGradient(nn.Module):
@@ -18,9 +17,9 @@ class ForwardGradient(nn.Module):
     def forward(self, x, dtype=torch.cuda.FloatTensor):
         """
         
-        :param x: 
-        :param dtype: 
-        :return: 
+        :param x: PyTorch Variable [1xMxN]
+        :param dtype: Tensor type
+        :return: PyTorch Variable [2xMxN]
         """
         im_size = x.size()
         gradient = Variable(torch.zeros((2, im_size[1], im_size[2])).type(dtype))  # Allocate gradient array
@@ -38,13 +37,13 @@ class ForwardWeightedGradient(nn.Module):
     def forward(self, x, w, dtype=torch.cuda.FloatTensor):
         """
         
-        :param x: 
-        :param w: 
-        :param dtype: 
-        :return: 
+        :param x: PyTorch Variable [1xMxN]
+        :param w: PyTorch Variable [2xMxN]
+        :param dtype: Tensor type
+        :return: PyTorch Variable [2xMxN]
         """
         im_size = x.size()
-        gradient = Variable(torch.zeros((2, im_size[1], im_size[2]))).cuda() # Allocate gradient array
+        gradient = Variable(torch.zeros((2, im_size[1], im_size[2])).type(dtype))  # Allocate gradient array
         # Horizontal direction
         gradient[0, :, :-1] = x[0, :, 1:] - x[0, :, :-1]
         # Vertical direction
@@ -60,9 +59,9 @@ class BackwardDivergence(nn.Module):
     def forward(self, y, dtype=torch.cuda.FloatTensor):
         """
         
-        :param y: pytorch Variable, gradient
-        :param dtype: 
-        :return: 
+        :param y: PyTorch Variable, [2xMxN], dual variable
+        :param dtype: Tensor type
+        :return: PyTorch Variable [1xMxN], divergence
         """
         im_size = y.size()
         # Horizontal direction
@@ -89,9 +88,9 @@ class BackwardWeightedDivergence(nn.Module):
     def forward(self, y, w, dtype=torch.cuda.FloatTensor):
         """
 
-        :param y: pytorch Variable, gradient
-        :param dtype:
-        :return:
+        :param y: PyTorch Variable, [2xMxN], dual variable
+        :param dtype: tensor type
+        :return: PyTorch Variable, [1xMxN], divergence
         """
         im_size = y.size()
         y_w = w.cuda() * y
@@ -116,19 +115,18 @@ class ProximalLinfBall(nn.Module):
     def __init__(self):
         super(ProximalLinfBall, self).__init__()
 
-    def forward(self, p, r):
+    def forward(self, p, r, dtype=torch.cuda.FloatTensor):
         """
         
-        :param p: 
-        :param r: 
-        :return: 
+        :param p: PyTorch Variable
+        :param r: float
+        :param dtype: tensor type
+        :return: PyTorch Variable
         """
-        if p.is_cuda:
-            m1 = torch.max(torch.add(p.data, - r), torch.zeros(p.size()).cuda())
-            m2 = torch.max(torch.add(torch.neg(p.data), - r), torch.zeros(p.size()).cuda())
-        else:
-            m1 = torch.max(torch.add(p.data, - r), torch.zeros(p.size()))
-            m2 = torch.max(torch.add(torch.neg(p.data), - r), torch.zeros(p.size()))
+
+        m1 = torch.max(torch.add(p.data, - r).type(dtype), torch.zeros(p.size()).type(dtype))
+        m2 = torch.max(torch.add(torch.neg(p.data), - r).type(dtype), torch.zeros(p.size()).type(dtype))
+
         return p - Variable(m1 - m2)
 
 
@@ -139,10 +137,10 @@ class ProximalL1(nn.Module):
     def forward(self, x, f, clambda):
         """
         
-        :param x: 
-        :param f: 
-        :param clambda: 
-        :return: 
+        :param x: PyTorch Variable, [1xMxN]
+        :param f: PyTorch Variable, [1xMxN]
+        :param clambda: float
+        :return: PyTorch Variable [1xMxN]
         """
         if x.is_cuda:
             res = x + torch.clamp(f - x, -clambda, clambda).cuda()
@@ -169,15 +167,16 @@ class PrimalUpdate(nn.Module):
         self.tau = tau
         self.lambda_rof = lambda_rof
 
-    def forward(self, x, y, img_obs):
+    def forward(self, x, y, img_obs, dtype=torch.cuda.FloatTensor):
         """
         
-        :param x: 
-        :param y: 
-        :param img_obs: 
-        :return: 
+        :param x: PyTorch Variable, [1xMxN]
+        :param y: PyTorch Variable, [2xMxN]
+        :param img_obs: PyTorch Variable [1xMxN]
+        :param dtype: Tensor type
+        :return: PyTorch Variable, [1xMxN]
         """
-        x = (x + self.tau * self.backward_div.forward(y, dtype=torch.cuda.FloatTensor) +
+        x = (x + self.tau * self.backward_div.forward(y, dtype) +
              self.lambda_rof * self.tau * img_obs) / (1.0 + self.lambda_rof * self.tau)
         return x
 
@@ -192,10 +191,10 @@ class PrimalWeightedUpdate(nn.Module):
     def forward(self, x, y, img_obs, w):
         """
 
-        :param x:
-        :param y:
-        :param img_obs:
-        :return:
+        :param x: PyTorch Variable [1xMxN]
+        :param y: PyTorch Variable [2xMxN]
+        :param img_obs: PyTorch Variable [1xMxN]
+        :return:Pytorch Variable, [1xMxN]
         """
         x = (x + self.tau * self.backward_div.forward(y, w) +
              self.lambda_rof * self.tau * img_obs) / (1.0 + self.lambda_rof * self.tau)
@@ -210,10 +209,10 @@ class PrimalRegularization(nn.Module):
     def forward(self, x, x_tilde, x_old):
         """
         
-        :param x: 
-        :param x_tilde: 
-        :param x_old: 
-        :return: 
+        :param x: PyTorch Variable, [1xMxN]
+        :param x_tilde: PyTorch Variable, [1xMxN]
+        :param x_old: PyTorch Variable, [1xMxN]
+        :return: PyTorch Variable, [1xMxN]
         """
         x_tilde = x + self.theta * (x - x_old)
         return x_tilde
@@ -228,9 +227,9 @@ class DualUpdate(nn.Module):
     def forward(self, x_tilde, y):
         """
         
-        :param x_tilde: 
-        :param y: 
-        :return: 
+        :param x_tilde: PyTorch Variable, [1xMxN]
+        :param y: PyTorch Variable, [2xMxN]
+        :return: PyTorch Variable, [2xMxN]
         """
         if y.is_cuda:
             y = y + self.sigma * self.forward_grad.forward(x_tilde, dtype=torch.cuda.FloatTensor)
@@ -248,43 +247,25 @@ class DualWeightedUpdate(nn.Module):
     def forward(self, x_tilde, y, w):
         """
         
-        :param x_tilde: 
-        :param y: 
-        :param w: 
-        :return: 
+        :param x_tilde: PyTorch Variable, [1xMxN]
+        :param y: PyTorch Variable, [2xMxN]
+        :param w: PyTorch Variable, [2xMxN]
+        :return: PyTorch Variable, [2xMxN]
         """
         y = y + self.sigma * self.forward_grad.forward(x_tilde, w)
         return y
 
 
-# class PrimalEnergyROF(nn.Module):
-#     def __init__(self):
-#         super(PrimalEnergyROF, self).__init__()
-#
-#     def forward(self, x, img_obs, clambda):
-#         """
-#
-#         :param x: pytorch Variables, [MxN]
-#         :param img_obs: pytorch Variable [MxN], observed image
-#         :param clambda: float, lambda parameter
-#         :return: float, primal ROF energy
-#         """
-#         g = ForwardWeightedGradient()
-#         energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), torch.cuda.FloatTensor), 1))
-#         energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2))
-#         return energy_reg + energy_data_term
-
-
 class PrimalDualNetwork(nn.Module):
-    def __init__(self, w, max_it=15, lambda_rof=7.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+    def __init__(self, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
         """
 
-        :param w:
-        :param max_it:
-        :param lambda_rof:
-        :param sigma:
-        :param tau:
-        :param theta:
+        :param w: PyTorch Variable, [2xMxN]
+        :param max_it: int
+        :param lambda_rof: float
+        :param sigma: float
+        :param tau: float
+        :param theta: float
         """
         super(PrimalDualNetwork, self).__init__()
         self.max_it = max_it
@@ -302,9 +283,9 @@ class PrimalDualNetwork(nn.Module):
 
     def forward(self, img_obs):
         """
-        
-        :param img_obs: 
-        :return: 
+        Forward function for the PrimalDualNet.
+        :param img_obs: PyTorch Variable, [1xMxN]
+        :return: PyTorch Variable, [1xMxN]
         """
         x = img_obs.clone().cuda()
         x_tilde = img_obs.clone().cuda()
@@ -337,11 +318,11 @@ class PrimalEnergyROF(nn.Module):
     def forward(self, x, img_obs, w, clambda):
         """
 
-        :param x: pytorch Variables, [MxN]
-        :param img_obs: pytorch Variable [MxN], observed image
-        :param w: pytorch Variable
+        :param x: PyTorch Variable, [1xMxN]
+        :param img_obs: PyTorch Variable [1xMxN], observed image
+        :param w: PyTorch Variable, [2xMxN]
         :param clambda: float, lambda parameter
-        :return: float, primal ROF energy
+        :return: PyTorch Variable [1]
         """
         g = ForwardWeightedGradient()
         energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), w), 1))
@@ -356,8 +337,8 @@ class PrimalGeneralEnergyROF(nn.Module):
     def forward(self, x, b, H, img_obs, clambda):
         """
 
-        :param x: pytorch Variables, [MxN]
-        :param img_obs: pytorch Variable [MxN], observed image
+        :param x: PyTorch Variable, [1xMxN]
+        :param img_obs: PyTorch Variable [1xMxN], observed image
         :param clambda: float, lambda parameter
         :return: float, primal ROF energy
         """
@@ -374,8 +355,8 @@ class DualEnergyROF(nn.Module):
     def forward(self, y, im_obs, w):
         """
         Compute the dual energy of ROF problem.
-        :param y: pytorch Variable, [MxNx2]
-        :param im_obs: pytorch Variables [MxN], observed image
+        :param y: PyTorch Variable, [2xMxN]
+        :param im_obs: PyTorch Variable [1xMxN], observed image
         :return: float, dual energy
         """
         d = BackwardWeightedDivergence()
@@ -391,9 +372,9 @@ class PrimalDualGap(nn.Module):
     def forward(self, x, y, im_obs, clambda):
         """
         Compute the primal dual gap.
-        :param x: pytorch Variable, [1xMxN]
-        :param y: pytorch Variable, [2xMxN]
-        :param im_obs: pytorch Variable, [1xMxN], observed image
+        :param x: PyTorch Variable, [1xMxN]
+        :param y: PyTorch Variable, [2xMxN]
+        :param im_obs: PyTorch Variable, [1xMxN], observed image
         :param clambda: float > 0
         :return: float > 0    w = nn.Parameter(torch.zeros(y.size()))
 
@@ -411,11 +392,11 @@ class MaxMarginLoss(nn.Module):
     def forward(self, x, H, b, w, x_gt):
         """
         Custom loss function for the generic ROF problem.
-        :param x:
-        :param H:
-        :param b:
-        :param w:
-        :return:
+        :param x: PyTorch Variable [1xMxN]
+        :param H: PyTorch Variable [1xMxN]
+        :param b: PyTorch Variable [1xMxN]
+        :param w: PyTorch Variable [1xMxN]
+        :return: PyTorch Variable [1xMxN]
         """
         fg = ForwardWeightedGradient()
         output1 = torch.transpose(b, 0, 1) * x + \
@@ -433,11 +414,11 @@ class PrimalGeneralEnergy(nn.Module):
     def forward(self, x, H, b, w):
         """
         Primal Energy for the General ROF model.
-        :param x:
-        :param H:
-        :param b:
-        :param w:
-        :return:
+        :param x: PyTorch Variable [1xMxN]
+        :param H: PyTorch Variable [1xMxN]
+        :param b: PyTorch Variable [1xMxN]
+        :param w: PyTorch Variable [1xMxN]
+        :return: PyTorch Variable [1]
         """
         fg = ForwardWeightedGradient()
         nrg1 = torch.sum(0.5 * torch.matmul(torch.transpose(x, 0, 1), torch.matmul(H, x))) + \
@@ -453,9 +434,9 @@ class DualGeneralEnergy(nn.Module):
     def forward(self, x, H):
         """
         Dual Energy for the general ROF model.
-        :param x:
-        :param H:
-        :return:
+        :param x: PyTorch Variable [1xMxN]
+        :param H: PyTorch Variable [1xM*NxM*N]
+        :return: PyTorch Variable, [1]
         """
         nrg = torch.sum(-0.5*torch.matmul(torch.transpose(x), torch.matmul(H, x)))
         return torch.sum(nrg)
@@ -468,11 +449,11 @@ class PrimalDualGeneralGap(nn.Module):
     def forward(self, x, H, b, w):
         """
 
-        :param x:
-        :param H:
-        :param b:
-        :param w:
-        :return:
+        :param x: PyTorch Variable [1xM*N]
+        :param H: PyTorch Variable [M*NxMxN]
+        :param b: PyTorch Variable [1xM*N]
+        :param w: PyTorch Variable [2xM*N]
+        :return: Pytorch Variable, [1]
         """
         fg = ForwardWeightedGradient()
         nrg1 = torch.sum(torch.matmul(torch.transpose(b, 0, 1), x))

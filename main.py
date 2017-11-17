@@ -6,7 +6,6 @@ On:         10/9/17
 At:         2:25 PM
 """
 from __future__ import print_function
-import time
 
 import numpy as np
 from PIL import Image
@@ -15,60 +14,56 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-
 import torchvision.transforms as transforms
 
 import png
-import prox_tv
+import argparse
 
-from primal_dual_model import PrimalDualNetwork, ForwardGradient, BackwardDivergence
+from primal_dual_model import PrimalDualNetwork, ForwardGradient, BackwardDivergence, ForwardWeightedGradient
 
-
-def penalization(x):
-    return torch.max(x, 0.)
-
-
-def margin(x1, x2):
-    return torch.norm(x1 - x2, 2)
-
-
-def test_operators_adjoints(x, y):
-    fg = ForwardGradient()
-    bd = BackwardDivergence()
-    gradx = fg.forward(x).cuda()
-    divy = bd.forward(y).cuda()
-    return torch.sum(gradx * y + divy * x)
-
-
-# cuda
-use_cuda = torch.cuda.is_available()
-print("Cuda = ", use_cuda)
-dtype = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
-
-# images
-imsize = 200  # desired size of the output image
-
-loader = transforms.Compose([transforms.Scale(imsize),  # scale imported image
-                             transforms.ToTensor()])  # transform it into a torch tensor
 
 if __name__ == '__main__':
-    plt.gray()
+    parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
+    parser.add_argument('--use_cuda', type=bool, default=True,
+                        help='Flag to use CUDA, if available')
+    parser.add_argument('--max_it', type=int, default=10,
+                        help='Number of iterations in the Primal Dual algorithm')
+    parser.add_argument('--max_epochs', type=int, default=150,
+                        help='Number of epochs in the Primal Dual Net')
+    parser.add_argument('--lambda_rof', type=float, default=5.,
+                        help='Lambda parameter in the ROF model')
+    parser.add_argument('--theta', type=int, default=0.9,
+                        help='Regularization parameter in the Primal Dual algorithm')
+    parser.add_argument('--tau', type=int, default=80,
+                        help='Parameter in Primal')
+    parser.add_argument('--save_flag', type=bool, default=True,
+                        help='Flag to save or not the result images')
+
+    args = parser.parse_args()
+
+    max_epochs = args.max_epochs
+    max_it = args.max_it
+    lambda_rof = args.lambda_rof
+    theta = args.theta
+    tau = args.tau
+    sigma = 1. / (lambda_rof * tau)
+    # cuda
+    use_cuda = (torch.cuda.is_available() and args.use_cuda)
+    dtype = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+
+    # Transforms PIL <-> PyTorch tensors
     pil2tensor = transforms.ToTensor()
     tensor2pil = transforms.ToPILImage()
 
-    # Create image to noise and denoise
-    sigma_n = 0.1
+    # Create image to noise and denoise / train the network on
+    sigma_n = 0.1  # Noise variance
     img_ = Image.open("images/image_Lena512.png")
     h, w = img_.size
-    img_ref = Variable(pil2tensor(img_).cuda())
+    img_ref = Variable(pil2tensor(img_).type(dtype))
     noise = torch.ones(img_ref.size())
-    noise = Variable(noise.normal_(0.0, sigma_n)).cuda()
+    noise = Variable(noise.normal_(0.0, sigma_n).type(dtype))
     img_obs = img_ref + noise
     img_n = img_obs.data.cpu().numpy().reshape((512, 512))
-
-    loader = transforms.Compose([
-        transforms.Scale(imsize),  # scale imported image
-        transforms.ToTensor()])  # transform it into a torch tensor
 
     # Parameters
     norm_l = 7.0
@@ -76,34 +71,32 @@ if __name__ == '__main__':
     theta = 0.8
     tau = 0.01
     sigma = 1.0 / (norm_l * tau)
-    #lambda_TVL1 = 1.0
     lambda_rof = 8.0  # 7.0
 
-    x = Variable(img_obs.data.clone()).cuda()
-    x_tilde = Variable(img_obs.data.clone()).cuda()
+    x = Variable(img_obs.data.clone().type(dtype))
+    x_tilde = Variable(img_obs.data.clone().type(dtype))
     img_size = img_ref.size()
-    y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2]))).cuda()
+    y = Variable(torch.zeros((img_size[0]+1, img_size[1], img_size[2])).type(dtype))
     y = ForwardGradient().forward(x)
+    g_ref = y.clone()
 
     # Net approach
-    w = nn.Parameter(torch.rand(y.size()).cuda())
+    w = nn.Parameter(torch.rand(y.size()).type(dtype))
     n_w = torch.norm(w, 1, dim=0)
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
     plt.colorbar()
 
-    net = PrimalDualNetwork(w)
+    net = PrimalDualNetwork(w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-2)
     params = list(net.parameters())
-    print(len(params))
-    print(params[0].size())
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
-    for t in range(80):
+    for t in range(max_epochs):
         # Forward pass: Compute predicted image by passing x to the model
         x_pred = net(x)
         # Compute and print loss
@@ -115,7 +108,7 @@ if __name__ == '__main__':
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # Compute energies
+        # Compute energies and store them for plotting
         pe = net.pe.data[0]
         de = net.de.data[0]
         primal_history.append(pe)
@@ -131,21 +124,22 @@ if __name__ == '__main__':
     ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
     ax3.set_title("Denoised image")
     ax4.imshow(np.abs(np.array(tensor2pil(img_obs.data.cpu())) - np.array(tensor2pil(x_pred.data.cpu()))))
-    print(gap_history[-1])
 
-    f = open('lena_noised.png', 'wb')
-    w1 = png.Writer(512, 512, greyscale=True)
-    w1.write(f, np.array(tensor2pil(img_obs.data.cpu())))
-    f.close()
-    f_res = open('lena_denoised.png', 'wb')
-    w1.write(f_res, np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
-    f_res.close()
+    # Save results if specified so:
+    if args.save_flag:
+        f = open('lena_noised.png', 'wb')
+        w1 = png.Writer(512, 512, greyscale=True)
+        w1.write(f, np.array(tensor2pil(img_obs.data.cpu())))
+        f.close()
+        f_res = open('lena_denoised.png', 'wb')
+        w1.write(f_res, np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
+        f_res.close()
     # Test image
     img_t = Image.open("images/image_Barbara512.png")
     h, w1 = img_t.size
-    img_ref_t = Variable(pil2tensor(img_t).cuda())
+    img_ref_t = Variable(pil2tensor(img_t).type(dtype))
     noise_2 = torch.ones(img_ref_t.size())
-    noise_2 = Variable(noise_2.normal_(0.0, sigma_n)).cuda()
+    noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
     img_obs_t = img_ref_t + noise
     img_dn = net.forward(img_obs_t)
 
@@ -159,13 +153,25 @@ if __name__ == '__main__':
 
 
     plt.figure()
-    plt.imshow(w.data[0].cpu().numpy())
+    res = ForwardWeightedGradient().forward(x, w)
+    plt.imshow(res.data[0].cpu().numpy())
+    plt.title("Gradient wrt x")
+    plt.colorbar()
+
+    plt.figure()
+    plt.imshow(g_ref.data[0].cpu().numpy())
+    plt.title("Gradient WRT x")
+
+    plt.figure()
+    plt.imshow(w.data[1].cpu().numpy())
+    plt.title("Gradient wrt y")
     plt.colorbar()
 
     # Plot loss
     plt.figure()
     x = range(len(loss_history))
     plt.plot(x, np.asarray(loss_history))
+    plt.title("Loss")
 
     plt.figure()
     x = range(len(primal_history))
