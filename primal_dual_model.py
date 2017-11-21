@@ -326,7 +326,7 @@ class PrimalEnergyROF(nn.Module):
         """
         g = ForwardWeightedGradient()
         energy_reg = torch.sum(torch.norm(g.forward(x.cuda(), w), 1))
-        energy_data_term = torch.sum(0.5 * (clambda) * torch.norm(x - img_obs, 2)**2)
+        energy_data_term = torch.sum(0.5 * clambda * torch.norm(x - img_obs, 2)**2)
         return energy_reg + energy_data_term
 
 
