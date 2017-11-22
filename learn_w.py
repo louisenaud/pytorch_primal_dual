@@ -1,10 +1,11 @@
 """
-Project:    
-File:       main.py
+Project:    pytorch_primal_dual
+File:       learn_w.py
 Created by: louise
-On:         10/9/17
-At:         2:25 PM
+On:         21/11/17
+At:         3:09 PM
 """
+
 from __future__ import print_function
 
 import numpy as np
@@ -22,7 +23,7 @@ import time
 import math
 
 
-from primal_dual_model import PrimalDualNetwork, ForwardGradient, ForwardWeightedGradient
+from primal_dual_model import PrimalDualNetwork_2, ForwardGradient, ForwardWeightedGradient
 
 
 def psnr(img1, img2):
@@ -43,13 +44,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
     parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
-    parser.add_argument('--max_it', type=int, default=20,
+    parser.add_argument('--max_it', type=int, default=10,
                         help='Number of iterations in the Primal Dual algorithm')
-    parser.add_argument('--max_epochs', type=int, default=800,
+    parser.add_argument('--max_epochs', type=int, default=600,
                         help='Number of epochs in the Primal Dual Net')
     parser.add_argument('--lambda_rof', type=float, default=7.,
                         help='Lambda parameter in the ROF model')
-    parser.add_argument('--theta', type=int, default=0.75,
+    parser.add_argument('--theta', type=int, default=0.9,
                         help='Regularization parameter in the Primal Dual algorithm')
     parser.add_argument('--tau', type=int, default=0.01,
                         help='Parameter in Primal')
@@ -76,7 +77,7 @@ if __name__ == '__main__':
     tensor2pil = transforms.ToPILImage()
 
     # Create image to noise and denoise / train the network on
-    sigma_ns = [0.01, 0.05, 0.075, 0.1]
+    sigma_ns = [0.01, 0.05, 0.075]
 
     img_ = Image.open("images/image_Lena512.png")
     h, w = img_.size
@@ -89,14 +90,15 @@ if __name__ == '__main__':
     img_obs = img_ref + Variable(noise).type(dtype)
     img_n = img_obs.data.cpu().mul(255).numpy().reshape((512, 512))
 
-    # Test image
+    # Test image - Noise and denoise
     img_t = Image.open("images/image_Boats512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
     noise_2 = torch.ones(img_ref_t.size())
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
-    img_obs_t = img_ref_t + Variable(noise).type(dtype)
+    img_obs_t = img_ref_t + noise_2
 
+    # Initialize primal and dual variables
     x = Variable(img_obss[0][0].data.clone().type(dtype))
     x_tilde = Variable(img_obss[0][0].data.clone().type(dtype))
     img_size = img_ref.size()
@@ -105,23 +107,27 @@ if __name__ == '__main__':
     g_ref = y.clone()
 
     # Net approach
-    w = nn.Parameter(torch.rand(y.size()).type(dtype))
+    w1 = 0.5 * torch.ones([1]).type(dtype)
+    w2 = 0.5 * torch.ones([1]).type(dtype)
+    w = Variable(torch.rand(y.size()).type(dtype))
+
+    #w = nn.Parameter(torch.rand(y.size()).type(dtype))
     n_w = torch.norm(w, 2, dim=0)
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
     plt.colorbar()
     plt.title("Norm of Gradient of Noised image")
 
-    net = PrimalDualNetwork(w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
+    net = PrimalDualNetwork_2(w1, w2, w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
     criterion = torch.nn.MSELoss(size_average=False)
-    optimizer = torch.optim.Adam(net.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)
+    print(list(net.parameters()))
     params = list(net.parameters())
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
-    it = 0
     for t in range(max_epochs):
         for (x, img_ref) in img_obss:  # Batch of training image with different noises
             y = ForwardWeightedGradient().forward(x, w)
@@ -129,15 +135,13 @@ if __name__ == '__main__':
             x_pred = net(x)
             # Compute and print loss
             loss = criterion(x_pred, img_ref)
-
+            loss_history.append(loss.data[0])
+            print(t, loss.data[0])
             # Zero gradients, perform a backward pass, and update the weights.
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            it += 1
-        print(t, loss.data[0])
-        loss_history.append(loss.data[0])
         # Compute energies and store them for plotting
         pe = net.pe.data[0]
         de = net.de.data[0]
@@ -145,6 +149,9 @@ if __name__ == '__main__':
         dual_history.append(de)
         gap_history.append(pe - de)
 
+    print("Weights = ", w1, ", ", w2)
+    w_term = Variable(torch.exp(-torch.abs(y.data)))
+    w = Variable(w1.expand_as(y)) + Variable(w2.expand_as(y)) * w_term
 
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, sharex='col', sharey='row')
     ax1.imshow(np.array(img_))
@@ -311,26 +318,6 @@ if __name__ == '__main__':
     if args.save_flag:
         plt.savefig('loss.png')
 
-    # plt.figure()
-    # x = range(len(primal_history))
-    # plt.plot(x, np.asarray(primal_history))
-    # plt.title("Primal")
-    # if args.save_flag:
-    #     plt.savefig('primal.png')
-    #
-    # plt.figure()
-    # x = range(len(dual_history))
-    # plt.plot(x, np.asarray(dual_history))
-    # plt.title("Dual")
-    # if args.save_flag:
-    #     plt.savefig('dual.png')
-    #
-    # plt.figure()
-    # x = range(len(gap_history))
-    # plt.plot(x, np.asarray(gap_history))
-    # plt.title("Gap")
-    # if args.save_flag:
-    #     plt.savefig('gap.png')
     plt.show()
 
 

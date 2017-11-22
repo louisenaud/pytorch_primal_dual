@@ -38,7 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_flag', type=bool, default=True,
                         help='Flag to save or not the result images')
     parser.add_argument('--result_folder_base', type=str, help="base name for the folder to save all results",
-                        default='experiment_')
+                        default='experiments/experiment_')
 
     args = parser.parse_args()
 
