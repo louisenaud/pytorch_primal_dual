@@ -40,17 +40,18 @@ def psnr(img1, img2):
     return 20 * math.log10(pix_max / math.sqrt(mse))
 
 if __name__ == '__main__':
-    plt.gray()
+    #plt.gray()
+    plt.jet()
     parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
     parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
     parser.add_argument('--max_it', type=int, default=10,
                         help='Number of iterations in the Primal Dual algorithm')
-    parser.add_argument('--max_epochs', type=int, default=600,
+    parser.add_argument('--max_epochs', type=int, default=500,
                         help='Number of epochs in the Primal Dual Net')
     parser.add_argument('--lambda_rof', type=float, default=7.,
                         help='Lambda parameter in the ROF model')
-    parser.add_argument('--theta', type=int, default=0.9,
+    parser.add_argument('--theta', type=int, default=0.75,
                         help='Regularization parameter in the Primal Dual algorithm')
     parser.add_argument('--tau', type=int, default=0.01,
                         help='Parameter in Primal')
@@ -87,8 +88,15 @@ if __name__ == '__main__':
     for sigma_n in sigma_ns:
         noise_v = Variable(noise.normal_(0.0, sigma_n).type(dtype))
         img_obss.append((img_ref+noise_v, img_ref))
+        plt.figure()
+        im = img_ref+noise_v
+        print(im.size())
+        plt.imshow(im.data.cpu().numpy().reshape(512, 512), vmin=0., vmax=1.)
+        plt.colorbar()
+        plt.title("Norm of Gradient of Noised image")
     img_obs = img_ref + Variable(noise).type(dtype)
     img_n = img_obs.data.cpu().mul(255).numpy().reshape((512, 512))
+    g_noise = ForwardGradient().forward(img_obs)
 
     # Test image - Noise and denoise
     img_t = Image.open("images/image_Boats512.png")
@@ -211,21 +219,33 @@ if __name__ == '__main__':
         w1.write(f_res, np.array(tensor2pil(img_dn.data.cpu())).reshape(512, 512))
         f_res.close()
 
+
     plt.figure()
-    res = ForwardWeightedGradient().forward(x, w)
-    plt.imshow(res.data[0].cpu().numpy())
-    plt.title("Weighted Gradient wrt x after training")
+    g_norm = torch.norm(g_noise, 2, dim=0)
+    plt.imshow(g_norm.data.cpu().numpy(), vmin=0., vmax=1.)
     plt.colorbar()
+    plt.title(" Norm of Gradient before training")
 
     plt.figure()
-    g_norm = torch.norm(g_ref, 2, dim=0)
-    plt.imshow(g_norm.data.cpu().numpy())
-    plt.title(" Norm of Gradient wrt x before training")
+    g_norm2 = torch.norm(ForwardWeightedGradient().forward(x_pred, w), 2, dim=0)
+    plt.imshow(g_norm2.data.cpu().numpy(), vmin=0., vmax=1.)
+    plt.colorbar()
+    plt.title("Norm of Learned Operator on Denoised image")
+
 
     plt.figure()
-    g_norm = torch.norm(res, 2, dim=0)
-    plt.imshow(g_norm.data.cpu().numpy())
-    plt.title("Norm of Gradient wrt x after training")
+    g_norm4 = torch.norm(ForwardWeightedGradient().forward(img_obs, w), 2, dim=0)
+    plt.imshow(g_norm4.data.cpu().numpy(), vmin=0., vmax=1.)
+    plt.colorbar()
+    plt.title("Norm of Learned Operator on original image")
+
+    plt.figure()
+    g_norm3 = torch.abs(g_norm4 - g_norm2)
+    plt.imshow(g_norm3.data.cpu().numpy(), vmin=0., vmax=1.)
+    plt.colorbar()
+    plt.title("Difference of Operator and Gradient on Original image")
+    print("Average of difference = ", torch.mean(g_norm3))
+
 
     plt.figure()
     plt.imshow(w.data[0].cpu().numpy())
@@ -313,7 +333,7 @@ if __name__ == '__main__':
     # Plot loss
     plt.figure()
     x = range(len(loss_history))
-    plt.plot(x, np.asarray(loss_history))
+    plt.plot(x, np.asarray(loss_history), ylim=[0., 500.])
     plt.title("Loss")
     if args.save_flag:
         plt.savefig('loss.png')

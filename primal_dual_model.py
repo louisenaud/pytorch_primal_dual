@@ -8,6 +8,7 @@ At:         4:19 PM
 from torch.autograd import Variable
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class ForwardGradient(nn.Module):
@@ -346,7 +347,8 @@ class PrimalDualNetwork_2(nn.Module):
         x_tilde = img_obs.clone().cuda()
         img_size = img_obs.size()
         y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
-        w_term = Variable(torch.exp(-torch.abs(x.data.expand_as(y))))
+        y = ForwardGradient().forward(x)
+        w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
         self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
         for it in range(self.max_it):
             # Dual update
@@ -517,3 +519,78 @@ class PrimalDualGeneralGap(nn.Module):
         nrg3 = torch.sum(torch.matmul(torch.transpose(x), torch.matmul(H, x)))
         return nrg1 + nrg2 + nrg3
 
+
+class Net(nn.Module):
+
+    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+        super(Net, self).__init__()
+        # 1 input image channel, 6 output channels, 5x5 square convolution
+        # kernel
+
+        self.m = nn.ReflectionPad2d(3)
+        self.conv1 = nn.Conv2d(1, 2, 3)
+        self.conv2 = nn.Conv2d(1, 2, 3)
+        self.max_it = max_it
+        self.dual_update = DualWeightedUpdate(sigma)
+        self.prox_l_inf = ProximalLinfBall()
+        self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
+        self.primal_reg = PrimalRegularization(theta)
+
+        self.energy_primal = PrimalEnergyROF()
+        self.energy_dual = DualEnergyROF()
+        self.pe = 0.0
+        self.de = 0.0
+        self.w1 = nn.Parameter(w1)
+        self.w2 = nn.Parameter(w2)
+        self.w = w
+        self.clambda = lambda_rof
+
+    def forward(self, x, img_obs):
+        """
+
+        :param x:
+        :param img_obs:
+        :return:
+        """
+        x = img_obs.clone().cuda()
+        x_tilde = img_obs.clone().cuda()
+        img_size = img_obs.size()
+        y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
+        y = ForwardGradient().forward(x)
+        w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
+        self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
+        # Forward pass
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        for it in range(self.max_it):
+            # Dual update
+            y = self.dual_update.forward(x_tilde, y, self.w)
+            y = self.prox_l_inf.forward(y, 1.0)
+            # Primal update
+            x_old = x
+            x = self.primal_update.forward(x, y, img_obs, self.w)
+            # Smoothing
+            x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
+            # Compute energies
+            self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
+            self.de = self.energy_dual.forward(y, img_obs, self.w)
+
+        # Max pooling over a (2, 2) window
+        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
+        # If the size is a square you can only specify a single number
+        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        x = x.view(-1, self.num_flat_features(x))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+    def num_flat_features(self, x):
+        size = x.size()[1:]  # all dimensions except the batch dimension
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
+
+
+n
