@@ -23,7 +23,11 @@ import time
 import math
 
 
-from primal_dual_model import PrimalDualNetwork_2, ForwardGradient, ForwardWeightedGradient
+from primal_dual_model import Net, ForwardGradient, ForwardWeightedGradient
+
+from tensorboard import SummaryWriter
+#SummaryWriter encapsulates everything
+
 
 
 def psnr(img1, img2):
@@ -45,13 +49,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
     parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
-    parser.add_argument('--max_it', type=int, default=10,
+    parser.add_argument('--max_it', type=int, default=15,
                         help='Number of iterations in the Primal Dual algorithm')
     parser.add_argument('--max_epochs', type=int, default=500,
                         help='Number of epochs in the Primal Dual Net')
     parser.add_argument('--lambda_rof', type=float, default=7.,
                         help='Lambda parameter in the ROF model')
-    parser.add_argument('--theta', type=int, default=0.75,
+    parser.add_argument('--theta', type=int, default=0.9,
                         help='Regularization parameter in the Primal Dual algorithm')
     parser.add_argument('--tau', type=int, default=0.01,
                         help='Parameter in Primal')
@@ -72,6 +76,8 @@ if __name__ == '__main__':
     use_cuda = (torch.cuda.is_available() and args.use_cuda)
     dtype = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
+    # Keep track of loss in tensorboard
+    writer = SummaryWriter()
 
     # Transforms PIL <-> PyTorch tensors
     pil2tensor = transforms.ToTensor()
@@ -88,12 +94,12 @@ if __name__ == '__main__':
     for sigma_n in sigma_ns:
         noise_v = Variable(noise.normal_(0.0, sigma_n).type(dtype))
         img_obss.append((img_ref+noise_v, img_ref))
-        plt.figure()
+        #plt.figure()
         im = img_ref+noise_v
-        print(im.size())
-        plt.imshow(im.data.cpu().numpy().reshape(512, 512), vmin=0., vmax=1.)
-        plt.colorbar()
-        plt.title("Norm of Gradient of Noised image")
+        # print(im.size())
+        # plt.imshow(im.data.cpu().numpy().reshape(512, 512), vmin=0., vmax=1.)
+        # plt.colorbar()
+        # plt.title("Norm of Gradient of Noised image")
     img_obs = img_ref + Variable(noise).type(dtype)
     img_n = img_obs.data.cpu().mul(255).numpy().reshape((512, 512))
     g_noise = ForwardGradient().forward(img_obs)
@@ -102,6 +108,9 @@ if __name__ == '__main__':
     img_t = Image.open("images/image_Boats512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
+    for sigma_n in sigma_ns:
+        noise_v = Variable(noise.normal_(0.0, sigma_n).type(dtype))
+        img_obss.append((img_ref_t+noise_v, img_ref_t))
     noise_2 = torch.ones(img_ref_t.size())
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
     img_obs_t = img_ref_t + noise_2
@@ -126,29 +135,33 @@ if __name__ == '__main__':
     plt.colorbar()
     plt.title("Norm of Gradient of Noised image")
 
-    net = PrimalDualNetwork_2(w1, w2, w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
+    net = Net(w1, w2, w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)
-    print(list(net.parameters()))
     params = list(net.parameters())
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
+    it = 0
     for t in range(max_epochs):
         for (x, img_ref) in img_obss:  # Batch of training image with different noises
             y = ForwardWeightedGradient().forward(x, w)
             # Forward pass: Compute predicted image by passing x to the model
-            x_pred = net(x)
+            x_pred = net(x, img_obs)
             # Compute and print loss
             loss = criterion(x_pred, img_ref)
             loss_history.append(loss.data[0])
             print(t, loss.data[0])
+
             # Zero gradients, perform a backward pass, and update the weights.
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            if it % 100 == 0:
+                writer.add_scalar('loss', loss.data[0], it)
+            it += 1
 
         # Compute energies and store them for plotting
         pe = net.pe.data[0]
@@ -169,6 +182,18 @@ if __name__ == '__main__':
     ax3.imshow(np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
     ax3.set_title("Denoised image")
     ax4.imshow(np.abs(np.array(tensor2pil(img_obs.data.cpu())) - np.array(tensor2pil(x_pred.data.cpu()))))
+    # Plot learned operator
+    n_w = torch.norm(net.linear_op(img_obs), 2, dim=0)
+    plt.figure()
+    plt.imshow(n_w.data.cpu().numpy())
+    plt.colorbar()
+    plt.title("Norm of Linear Operator of Noised image Lena")
+
+    n_w = torch.norm(net.linear_op(img_obs_t), 2, dim=0)
+    plt.figure()
+    plt.imshow(n_w.data.cpu().numpy())
+    plt.colorbar()
+    plt.title("Norm of Linear Operator of Noised image Boats")
 
     # Compute PSNRs
     snr1 = psnr(img_obs.data.cpu().mul_(255).numpy().reshape(512, 512), np.array(img_))
@@ -184,7 +209,7 @@ if __name__ == '__main__':
         w1.write(f_res, np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
         f_res.close()
 
-    # Test image
+    # Test image : Barbara
     sigma_n = args.sigma_n  # Noise variance for testing
     img_t = Image.open("images/image_Barbara512.png")
     h, w1 = img_t.size
@@ -193,7 +218,7 @@ if __name__ == '__main__':
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
     img_obs_t = img_ref_t + noise_2
     t_0 = time.time()
-    img_dn = net.forward(img_obs_t)
+    img_dn = net.forward(img_obs_t, img_obs_t)
     t_1 = time.time()
     print("Elapsed time: ", t_1 - t_0, "s")
 
@@ -263,7 +288,7 @@ if __name__ == '__main__':
     plt.colorbar()
     print("Average of weights = ", torch.mean(w))
 
-    # Test image
+    # Test image: Boats
     img_t = Image.open("images/image_Boats512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
@@ -271,7 +296,7 @@ if __name__ == '__main__':
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
     img_obs_t = img_ref_t + noise_2
     t_0 = time.time()
-    img_dn = net.forward(img_obs_t)
+    img_dn = net.forward(img_obs_t, img_obs_t)
     t_1 = time.time()
     print("Elapsed time: ", t_1 - t_0, "s")
 
@@ -297,7 +322,7 @@ if __name__ == '__main__':
         w1.write(f_res, np.array(tensor2pil(img_dn.data.cpu())).reshape(512, 512))
         f_res.close()
 
-    # Test image
+    # Test image: Lake
     img_t = Image.open("images/image_Lake512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
@@ -305,7 +330,7 @@ if __name__ == '__main__':
     noise_2 = Variable(noise_2.normal_(0.0, sigma_n).type(dtype))
     img_obs_t = img_ref_t + noise_2
     t_0 = time.time()
-    img_dn = net.forward(img_obs_t)
+    img_dn = net.forward(img_obs_t, img_obs_t)
     t_1 = time.time()
     print("Elapsed time: ", t_1 - t_0, "s")
 
@@ -333,7 +358,7 @@ if __name__ == '__main__':
     # Plot loss
     plt.figure()
     x = range(len(loss_history))
-    plt.plot(x, np.asarray(loss_history), ylim=[0., 500.])
+    plt.plot(x, np.asarray(loss_history))
     plt.title("Loss")
     if args.save_flag:
         plt.savefig('loss.png')

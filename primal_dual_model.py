@@ -520,6 +520,27 @@ class PrimalDualGeneralGap(nn.Module):
         return nrg1 + nrg2 + nrg3
 
 
+class LinearOperator(nn.Module):
+    def __init__(self):
+        super(LinearOperator, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1).cuda()
+        self.conv2 = nn.Conv2d(10, 10, kernel_size=3, stride=1, padding=1).cuda()
+        self.conv3 = nn.Conv2d(10, 2, kernel_size=3, stride=1, padding=1).cuda()
+
+    def forward(self, x):
+        """
+
+        :param x:
+        :return:
+        """
+        z = Variable(x.data.unsqueeze(0)).cuda()
+        z = F.relu(self.conv1(z))
+        z = F.relu(self.conv2(z))
+        z = F.relu(self.conv3(z))
+        y = Variable(z.data.squeeze(0).cuda())
+        return y
+
+
 class Net(nn.Module):
 
     def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
@@ -527,9 +548,8 @@ class Net(nn.Module):
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
 
-        self.m = nn.ReflectionPad2d(3)
-        self.conv1 = nn.Conv2d(1, 2, 3)
-        self.conv2 = nn.Conv2d(1, 2, 3)
+        self.m = nn.ReflectionPad2d(10)
+        self.linear_op = LinearOperator()
         self.max_it = max_it
         self.dual_update = DualWeightedUpdate(sigma)
         self.prox_l_inf = ProximalLinfBall()
@@ -556,12 +576,12 @@ class Net(nn.Module):
         x_tilde = img_obs.clone().cuda()
         img_size = img_obs.size()
         y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
-        y = ForwardGradient().forward(x)
+        #y = ForwardGradient().forward(x)
+
+        # Forward pass
+        y = self.linear_op(x)
         w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
         self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
-        # Forward pass
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
         for it in range(self.max_it):
             # Dual update
             y = self.dual_update.forward(x_tilde, y, self.w)
@@ -575,14 +595,6 @@ class Net(nn.Module):
             self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
             self.de = self.energy_dual.forward(y, img_obs, self.w)
 
-        # Max pooling over a (2, 2) window
-        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
-        # If the size is a square you can only specify a single number
-        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
-        x = x.view(-1, self.num_flat_features(x))
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
         return x
 
     def num_flat_features(self, x):
@@ -593,4 +605,3 @@ class Net(nn.Module):
         return num_features
 
 
-n
