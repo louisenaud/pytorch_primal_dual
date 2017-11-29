@@ -51,7 +51,7 @@ if __name__ == '__main__':
                         help='Flag to use CUDA, if available')
     parser.add_argument('--max_it', type=int, default=15,
                         help='Number of iterations in the Primal Dual algorithm')
-    parser.add_argument('--max_epochs', type=int, default=500,
+    parser.add_argument('--max_epochs', type=int, default=100,
                         help='Number of epochs in the Primal Dual Net')
     parser.add_argument('--lambda_rof', type=float, default=7.,
                         help='Lambda parameter in the ROF model')
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     pil2tensor = transforms.ToTensor()
     tensor2pil = transforms.ToPILImage()
 
-    # Create image to noise and denoise / train the network on
+    # Create images to noise and denoise / train the network on
     sigma_ns = [0.01, 0.05, 0.075]
 
     img_ = Image.open("images/image_Lena512.png")
@@ -96,15 +96,11 @@ if __name__ == '__main__':
         img_obss.append((img_ref+noise_v, img_ref))
         #plt.figure()
         im = img_ref+noise_v
-        # print(im.size())
-        # plt.imshow(im.data.cpu().numpy().reshape(512, 512), vmin=0., vmax=1.)
-        # plt.colorbar()
-        # plt.title("Norm of Gradient of Noised image")
     img_obs = img_ref + Variable(noise).type(dtype)
     img_n = img_obs.data.cpu().mul(255).numpy().reshape((512, 512))
     g_noise = ForwardGradient().forward(img_obs)
 
-    # Test image - Noise and denoise
+    # Other train images - Noise and denoise
     img_t = Image.open("images/image_Boats512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
@@ -171,7 +167,7 @@ if __name__ == '__main__':
         gap_history.append(pe - de)
 
     print("Weights = ", w1, ", ", w2)
-    w_term = Variable(torch.exp(-torch.abs(y.data)))
+    w_term = Variable(torch.exp(-torch.abs(net.linear_op(x_pred).data)))
     w = Variable(w1.expand_as(y)) + Variable(w2.expand_as(y)) * w_term
 
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, sharex='col', sharey='row')
@@ -183,17 +179,17 @@ if __name__ == '__main__':
     ax3.set_title("Denoised image")
     ax4.imshow(np.abs(np.array(tensor2pil(img_obs.data.cpu())) - np.array(tensor2pil(x_pred.data.cpu()))))
     # Plot learned operator
-    n_w = torch.norm(net.linear_op(img_obs), 2, dim=0)
+    n_w = torch.norm(ForwardWeightedGradient().forward(img_ref, w), 2, dim=0)
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
     plt.colorbar()
     plt.title("Norm of Linear Operator of Noised image Lena")
 
-    n_w = torch.norm(net.linear_op(img_obs_t), 2, dim=0)
+    n_w = torch.norm(ForwardWeightedGradient().forward(img_ref, w), 2, dim=0)
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
     plt.colorbar()
-    plt.title("Norm of Linear Operator of Noised image Boats")
+    plt.title("Norm of of Noised image Boats")
 
     # Compute PSNRs
     snr1 = psnr(img_obs.data.cpu().mul_(255).numpy().reshape(512, 512), np.array(img_))

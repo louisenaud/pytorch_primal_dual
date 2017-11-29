@@ -75,7 +75,7 @@ if __name__ == '__main__':
     pil2tensor = transforms.ToTensor()
     tensor2pil = transforms.ToPILImage()
 
-    # Create image to noise and denoise / train the network on
+    # Create images to noise and denoise / train the network on
     sigma_ns = [0.01, 0.05, 0.075, 0.1]
 
     img_ = Image.open("images/image_Lena512.png")
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     img_obs = img_ref + Variable(noise).type(dtype)
     img_n = img_obs.data.cpu().mul(255).numpy().reshape((512, 512))
 
-    # Test image
+    # Create other training images
     img_t = Image.open("images/image_Boats512.png")
     h, w1 = img_t.size
     img_ref_t = Variable(pil2tensor(img_t).type(dtype))
@@ -112,16 +112,19 @@ if __name__ == '__main__':
     plt.colorbar()
     plt.title("Norm of Gradient of Noised image")
 
+    # Create Network
     net = PrimalDualNetwork(w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
     criterion = torch.nn.MSELoss(size_average=False)
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-4)
     params = list(net.parameters())
+    # Store losses
     loss_history = []
     primal_history = []
     dual_history = []
     gap_history = []
     learning_rate = 1e-4
     it = 0
+    # Training
     for t in range(max_epochs):
         for (x, img_ref) in img_obss:  # Batch of training image with different noises
             y = ForwardWeightedGradient().forward(x, w)
@@ -145,7 +148,7 @@ if __name__ == '__main__':
         dual_history.append(de)
         gap_history.append(pe - de)
 
-
+    # Plot results on Lena
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, sharex='col', sharey='row')
     ax1.imshow(np.array(img_))
     ax1.set_title("Reference image")
@@ -169,7 +172,7 @@ if __name__ == '__main__':
         w1.write(f_res, np.array(tensor2pil(x_pred.data.cpu())).reshape(512, 512))
         f_res.close()
 
-    # Test image
+    # Test image :
     sigma_n = args.sigma_n  # Noise variance for testing
     img_t = Image.open("images/image_Barbara512.png")
     h, w1 = img_t.size
