@@ -11,6 +11,32 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+from primal_dual_updates import PrimalWeightedUpdate, PrimalRegularization, DualWeightedUpdate
+from proximal_operators import ProximalLinfBall
+
+
+class LinearOperator(nn.Module):
+    def __init__(self):
+        super(LinearOperator, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1).cuda()
+        self.conv2 = nn.Conv2d(10, 10, kernel_size=3, stride=1, padding=1).cuda()
+        self.conv3 = nn.Conv2d(10, 2, kernel_size=3, stride=1, padding=1).cuda()
+
+    def forward(self, x):
+        """
+
+        :param x:
+        :return:
+        """
+        z = Variable(x.data.unsqueeze(0)).cuda()
+        z = F.relu(self.conv1(z))
+        z = F.relu(self.conv2(z))
+        z = F.relu(self.conv3(z))
+        y = Variable(z.data.squeeze(0).cuda())
+        return y
+
+
 class Net(nn.Module):
 
     def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
@@ -26,8 +52,8 @@ class Net(nn.Module):
         self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
         self.primal_reg = PrimalRegularization(theta)
 
-        self.energy_primal = PrimalEnergyROF()
-        self.energy_dual = DualEnergyROF()
+        #self.energy_primal = PrimalEnergyROF()
+        #self.energy_dual = DualEnergyROF()
         self.pe = 0.0
         self.de = 0.0
         self.w1 = nn.Parameter(w1)
@@ -42,8 +68,8 @@ class Net(nn.Module):
         :param img_obs:
         :return:
         """
-        x = img_obs.clone().cuda()
-        x_tilde = img_obs.clone().cuda()
+        x = Variable(img_obs.data.clone()).cuda()
+        x_tilde = Variable(img_obs.data.clone()).cuda()
         img_size = img_obs.size()
         y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
         #y = ForwardGradient().forward(x)
@@ -62,8 +88,8 @@ class Net(nn.Module):
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
             # Compute energies
-            self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
-            self.de = self.energy_dual.forward(y, img_obs, self.w)
+            #self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
+            #self.de = self.energy_dual.forward(y, img_obs, self.w)
 
         return x
 

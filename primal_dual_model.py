@@ -520,25 +520,6 @@ class PrimalDualGeneralGap(nn.Module):
         return nrg1 + nrg2 + nrg3
 
 
-class LinearOperator(nn.Module):
-    def __init__(self):
-        super(LinearOperator, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1).cuda()
-        self.conv2 = nn.Conv2d(10, 10, kernel_size=3, stride=1, padding=1).cuda()
-        self.conv3 = nn.Conv2d(10, 2, kernel_size=3, stride=1, padding=1).cuda()
-
-    def forward(self, x):
-        """
-
-        :param x:
-        :return:
-        """
-        z = Variable(x.data.unsqueeze(0)).cuda()
-        z = F.relu(self.conv1(z))
-        z = F.relu(self.conv2(z))
-        z = F.relu(self.conv3(z))
-        y = Variable(z.data.squeeze(0).cuda())
-        return y
 
 
 class Net(nn.Module):

@@ -25,7 +25,6 @@ import math
 
 from primal_dual_model import Net, ForwardGradient, ForwardWeightedGradient
 
-from tensorboard import SummaryWriter
 #SummaryWriter encapsulates everything
 
 
