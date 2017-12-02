@@ -129,7 +129,7 @@ for t in range(max_epochs):
     # Pick random noise variance b/w 0.0 and 0.1
     std = np.random.uniform(0.005, 0.1, 1)
     # Apply noise on chosen image
-    img_obs = GaussianNoiseGenerator().forward(img_ref.data, std[0])
+    img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
     img_obs = Variable(img_obs).type(dtype)
     x = Variable(img_obs.data.clone())
     w = Variable(torch.rand(y.size()).type(dtype))
@@ -184,5 +184,3 @@ plt.colorbar()
 plt.title("Norm of Initial Weights of Gradient of Noised image")
 
 plt.show()
-
-
