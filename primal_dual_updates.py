@@ -38,7 +38,7 @@ class PrimalWeightedUpdate(nn.Module):
         self.tau = tau
         self.lambda_rof = lambda_rof
 
-    def forward(self, x, y, img_obs, w):
+    def forward(self, x, y, img_obs, w, dtype=torch.cuda.FloatTensor):
         """
 
         :param x: PyTorch Variable [1xMxN]
@@ -46,6 +46,7 @@ class PrimalWeightedUpdate(nn.Module):
         :param img_obs: PyTorch Variable [1xMxN]
         :return:Pytorch Variable, [1xMxN]
         """
+
         x = (x + self.tau * self.backward_div.forward(y, w) +
              self.lambda_rof * self.tau * img_obs) / (1.0 + self.lambda_rof * self.tau)
         return x

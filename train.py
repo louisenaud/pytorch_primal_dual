@@ -17,6 +17,7 @@ from torch.autograd import Variable
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import torch.nn as nn
 from tensorboard import SummaryWriter
 
 from data_io import NoisyImages, compute_mean_std_dataset
@@ -53,7 +54,8 @@ m, std = 0.47, 0.21
 # Keep track of loss in tensorboard
 writer = SummaryWriter()
 # Transform dataset
-transformations = transforms.Compose([transforms.Normalize(m, std), transforms.ToTensor()])
+#transformations = transforms.Compose([transforms.Normalize(m, std), transforms.ToTensor()])
+transformations = transforms.Compose([transforms.ToTensor()])
 dd = NoisyImages("/home/louise/src/blog/pytorch_primal_dual/images/noised/", transform=transformations)
 #m, std = compute_mean_std_dataset(dd.data)
 dtype = torch.cuda.FloatTensor
@@ -68,7 +70,7 @@ for img_obs, img_ref in train_loader.dataset.data_list:
     img_obs, img_ref = Variable(img_obs), Variable(img_ref)
 
 
-rs = ShuffleSplit(n_splits=1, test_size=.25, random_state=0)
+rs = ShuffleSplit(n_splits=5, test_size=.5, random_state=1)
 # Go through each split
 for train_index, test_index in rs.split(train_loader.dataset.data_list):
     print("TRAIN:", train_index, "TEST:", test_index)
@@ -95,7 +97,7 @@ for train_index, test_index in rs.split(train_loader.dataset.data_list):
     plt.figure()
     plt.imshow(n_w.data.cpu().numpy())
     plt.colorbar()
-    plt.title("Norm of Gradient of Noised image")
+    plt.title("Norm of Initial Weights of Gradient of Noised image")
 
     net = Net(w1, w2, w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
     criterion = torch.nn.MSELoss(size_average=False)
@@ -135,7 +137,7 @@ for train_index, test_index in rs.split(train_loader.dataset.data_list):
         # primal_history.append(pe)
         # dual_history.append(de)
         # gap_history.append(pe - de)
-
+    # Forward pass on test set
     for img_obs, img_ref in X_test, y_test:
         x = Variable(img_obs).type(dtype)
         img_obs = Variable(img_obs).type(dtype)

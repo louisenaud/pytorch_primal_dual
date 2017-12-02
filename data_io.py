@@ -85,3 +85,41 @@ def compute_mean_std_dataset(data):
         stdevs.append(np.std(pixels))
 
     return means, stdevs
+
+
+def create_non_noisy_filelist(img_path):
+    """
+
+    :param img_path:
+    :return:
+    """
+    abs_path = os.path.abspath('.')
+    path_img = os.path.join(abs_path, img_path)
+    print(path_img)
+    filelist = os.listdir(path_img)
+    img_files = []
+    for fichier in filelist[:]:  # filelist[:] makes a copy of filelist.
+        if fichier.endswith(".png") or (fichier.endswith(".jpg")):
+            img_files.append(os.path.join(path_img, fichier))
+
+    return img_files
+
+
+class NonNoisyImages(Dataset):
+    """
+    Dataset for reference images to be noised on the fly in the network.
+    """
+
+    def __init__(self, img_path, transform=None):
+        self.filelist = create_non_noisy_filelist(img_path)
+        self.transform = transform
+
+    def __getitem__(self, index):
+        img = Image.open(self.filelist[index])
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img
+
+    def __len__(self):
+        return len(self.filelist)

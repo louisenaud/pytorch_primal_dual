@@ -37,14 +37,29 @@ class LinearOperator(nn.Module):
         return y
 
 
+class GaussianNoiseGenerator(nn.Module):
+    def __init__(self):
+        super(GaussianNoiseGenerator, self).__init__()
+
+    def forward(self, img, std, mean=0.0, dtype=torch.cuda.FloatTensor):
+        """
+
+        :param img:
+        :param std:
+        :param mean:
+        :param dtype:
+        :return:
+        """
+        noise = torch.zeros(img.size()).type(dtype)
+        noise.normal_(mean, std=std)
+        img_n = img + noise
+        return img_n
+
+
 class Net(nn.Module):
 
-    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5, dtype=torch.cuda.FloatTensor):
         super(Net, self).__init__()
-        # 1 input image channel, 6 output channels, 5x5 square convolution
-        # kernel
-
-        self.m = nn.ReflectionPad2d(10)
         self.linear_op = LinearOperator()
         self.max_it = max_it
         self.dual_update = DualWeightedUpdate(sigma)
@@ -52,14 +67,13 @@ class Net(nn.Module):
         self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
         self.primal_reg = PrimalRegularization(theta)
 
-        #self.energy_primal = PrimalEnergyROF()
-        #self.energy_dual = DualEnergyROF()
         self.pe = 0.0
         self.de = 0.0
         self.w1 = nn.Parameter(w1)
         self.w2 = nn.Parameter(w2)
         self.w = w
         self.clambda = lambda_rof
+        self.type = dtype
 
     def forward(self, x, img_obs):
         """
@@ -78,6 +92,7 @@ class Net(nn.Module):
         y = self.linear_op(x)
         w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
         self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
+        self.w.type(self.type)
         for it in range(self.max_it):
             # Dual update
             y = self.dual_update.forward(x_tilde, y, self.w)
@@ -90,6 +105,55 @@ class Net(nn.Module):
             # Compute energies
             #self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
             #self.de = self.energy_dual.forward(y, img_obs, self.w)
+
+        return x
+
+
+class NetGeneratedNoise(nn.Module):
+
+    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+        super(Net, self).__init__()
+        # 1 input image channel, 6 output channels, 5x5 square convolution
+        # kernel
+        self.noise_generator = GaussianNoiseGenerator()
+        self.m = nn.ReflectionPad2d(10)
+        self.linear_op = LinearOperator()
+        self.max_it = max_it
+        self.dual_update = DualWeightedUpdate(sigma)
+        self.prox_l_inf = ProximalLinfBall()
+        self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
+        self.primal_reg = PrimalRegularization(theta)
+
+        self.w1 = nn.Parameter(w1)
+        self.w2 = nn.Parameter(w2)
+        self.w = w
+        self.clambda = lambda_rof
+
+    def forward(self, x, img_obs, dtype=torch.cuda.FloatTensor):
+        """
+        Forward function. First we generate the parameters of the noise, then we crate the noise to add.
+        :param x:
+        :param img_ref:
+        :return:
+        """
+        x = Variable(img_obs.data.clone()).type(dtype)
+        x_tilde = Variable(x.data.clone()).type(dtype)
+        img_obs = Variable(img_obs).type(dtype)
+        img_obs.data.type(self.type)
+        # Forward pass
+        y = self.linear_op(x)
+        w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
+        self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
+        self.w.data.type(dtype)
+        for it in range(self.max_it):
+            # Dual update
+            y = self.dual_update.forward(x_tilde, y, self.w)
+            y = self.prox_l_inf.forward(y, 1.0)
+            # Primal update
+            x_old = x
+            x = self.primal_update.forward(x, y, img_obs, self.w)
+            # Smoothing
+            x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
 
         return x
 
