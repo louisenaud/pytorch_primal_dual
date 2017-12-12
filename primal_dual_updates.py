@@ -103,7 +103,7 @@ class DualWeightedUpdate(nn.Module):
         :param w: PyTorch Variable, [2xMxN]
         :return: PyTorch Variable, [2xMxN]
         """
-        y = y + self.sigma * self.forward_grad.forward(x_tilde, w)
+        y = y + self.sigma.expand_as(y) * self.forward_grad.forward(x_tilde, w)
         return y
 
 
@@ -120,5 +120,5 @@ class PrimalRegularization(nn.Module):
         :param x_old: PyTorch Variable, [1xMxN]
         :return: PyTorch Variable, [1xMxN]
         """
-        x_tilde = x + self.theta * (x - x_old)
+        x_tilde = x + self.theta.expand_as(x) * (x - x_old)
         return x_tilde

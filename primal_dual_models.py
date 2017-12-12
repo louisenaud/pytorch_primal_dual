@@ -58,7 +58,7 @@ class GaussianNoiseGenerator(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5, dtype=torch.cuda.FloatTensor):
+    def __init__(self, w1, w2, w, max_it, lambda_rof, sigma, tau, theta, dtype=torch.cuda.FloatTensor):
         super(Net, self).__init__()
         self.linear_op = LinearOperator()
         self.max_it = max_it
@@ -72,7 +72,11 @@ class Net(nn.Module):
         self.w1 = nn.Parameter(w1)
         self.w2 = nn.Parameter(w2)
         self.w = w
-        self.clambda = lambda_rof
+        self.clambda = nn.Parameter(lambda_rof.data)
+        self.sigma = nn.Parameter(sigma.data)
+        self.tau = nn.Parameter(tau.data)
+        self.theta = nn.Parameter(theta.data)
+
         self.type = dtype
 
     def forward(self, x, img_obs):
@@ -96,12 +100,15 @@ class Net(nn.Module):
         for it in range(self.max_it):
             # Dual update
             y = self.dual_update.forward(x_tilde, y, self.w)
+            y.data.clamp_(0, 1)
             y = self.prox_l_inf.forward(y, 1.0)
             # Primal update
             x_old = x
             x = self.primal_update.forward(x, y, img_obs, self.w)
+            x.data.clamp_(0, 1)
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
+            x_tilde.data.clamp_(0, 1)
             # Compute energies
             #self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
             #self.de = self.energy_dual.forward(y, img_obs, self.w)

@@ -8,7 +8,6 @@ At:         4:19 PM
 from torch.autograd import Variable
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class ForwardGradient(nn.Module):
@@ -524,7 +523,7 @@ class PrimalDualGeneralGap(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, w1, w2, w, max_it=10, lambda_rof=4.0, sigma=1. / (7.0 * 0.01), tau=0.01, theta=0.5):
+    def __init__(self, w1, w2, w, max_it, lambda_rof, sigma, tau, theta):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
@@ -532,10 +531,14 @@ class Net(nn.Module):
         self.m = nn.ReflectionPad2d(10)
         self.linear_op = LinearOperator()
         self.max_it = max_it
-        self.dual_update = DualWeightedUpdate(sigma)
+        self.clambda = nn.Parameter(lambda_rof)
+        self.sigma = nn.Parameter(sigma)
+        self.tau = nn.Parameter(tau)
+        self.theta = nn.Parameter(theta)
+        self.dual_update = DualWeightedUpdate(self.sigma)
         self.prox_l_inf = ProximalLinfBall()
-        self.primal_update = PrimalWeightedUpdate(lambda_rof, tau)
-        self.primal_reg = PrimalRegularization(theta)
+        self.primal_update = PrimalWeightedUpdate(self.clambda, self.tau)
+        self.primal_reg = PrimalRegularization(self.theta)
 
         self.energy_primal = PrimalEnergyROF()
         self.energy_dual = DualEnergyROF()
@@ -544,7 +547,7 @@ class Net(nn.Module):
         self.w1 = nn.Parameter(w1)
         self.w2 = nn.Parameter(w2)
         self.w = w
-        self.clambda = lambda_rof
+
 
     def forward(self, x, img_obs):
         """
@@ -577,12 +580,4 @@ class Net(nn.Module):
             self.de = self.energy_dual.forward(y, img_obs, self.w)
 
         return x
-
-    def num_flat_features(self, x):
-        size = x.size()[1:]  # all dimensions except the batch dimension
-        num_features = 1
-        for s in size:
-            num_features *= s
-        return num_features
-
 

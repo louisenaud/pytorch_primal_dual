@@ -51,15 +51,15 @@ parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
 parser.add_argument('--max_it', type=int, default=20,
                         help='Number of iterations in the Primal Dual algorithm')
-parser.add_argument('--max_epochs', type=int, default=200,
+parser.add_argument('--max_epochs', type=int, default=20000,
                     help='Number of epochs in the Primal Dual Net')
-parser.add_argument('--lambda_rof', type=float, default=5.,
+parser.add_argument('--lambda_rof', type=float, default=7.,
                     help='Step parameter in the ROF model')
-parser.add_argument('--theta', type=int, default=0.75,
+parser.add_argument('--theta', type=int, default=0.8,
                     help='Regularization parameter in the Primal Dual algorithm')
 parser.add_argument('--tau', type=int, default=0.01,
                     help='Step Parameter in Primal')
-parser.add_argument('--save_flag', type=bool, default=True,
+parser.add_argument('--save_flag', type=bool, default=False,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=True)
 args = parser.parse_args()
@@ -77,10 +77,11 @@ theta = args.theta
 tau = args.tau
 sigma = 1. / (lambda_rof * tau)
 batch_size = 1
-m, std =122.11, 53.55
+m, std =122.11/255., 53.55/255.
+print(m, std)
 
 # Transform dataset
-#transformations = transforms.Compose([transforms.ToTensor(), transforms.Normalize([m, m, m], [std, std, std])])
+#transformations = transforms.Compose([transforms.ToTensor(), transforms.Normalize((m,), (std,))])
 transformations = transforms.Compose([transforms.ToTensor()])
 dd = NonNoisyImages("/home/louise/src/blog/pytorch_primal_dual/images/BM3D/", transform=transformations)
 #m, std = compute_mean_std_dataset(dd.data)
@@ -89,7 +90,7 @@ train_loader = DataLoader(dd,
                           batch_size=batch_size,
                           num_workers=1)
 
-m, n = compute_mean_std_data(train_loader.dataset.filelist)
+m1, n1 = compute_mean_std_data(train_loader.dataset.filelist)
 print("m = ", m)
 print("s = ", std)
 # set up primal and dual variables
@@ -103,8 +104,14 @@ g_ref = y.clone()
 
 # Net approach
 w1 = 0.5 * torch.ones([1]).type(dtype)
-w2 = 0.5 * torch.ones([1]).type(dtype)
+w2 = 0.4 * torch.ones([1]).type(dtype)
 w = Variable(torch.rand(y.size()).type(dtype))
+# Primal dual parameters as net parameters
+lambda_rof = nn.Parameter(lambda_rof * torch.ones([1]).type(dtype))
+sigma = nn.Parameter(sigma * torch.ones([1]).type(dtype))
+tau = nn.Parameter(tau * torch.ones([1]).type(dtype))
+theta = nn.Parameter(theta*torch.ones([1]).type(dtype))
+
 
 n_w = torch.norm(w, 2, dim=0)
 plt.figure()
@@ -112,22 +119,24 @@ plt.imshow(n_w.data.cpu().numpy())
 plt.colorbar()
 plt.title("Norm of Initial Weights of Gradient of Noised image")
 
-net = Net(w1, w2, w, max_it=max_it, lambda_rof=lambda_rof, sigma=sigma, tau=tau, theta=theta)
-criterion = torch.nn.MSELoss(size_average=False)
+net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
+
+criterion = torch.nn.MSELoss(size_average=True)
 optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)
 params = list(net.parameters())
 loss_history = []
 primal_history = []
 dual_history = []
 gap_history = []
-learning_rate = 1e-4
+learning_rate = 1e-2
 it = 0
 for t in range(max_epochs):
     # Pick random image in dataset
     img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
+    #print(img_ref)
     y = ForwardGradient().forward(img_ref)
     # Pick random noise variance b/w 0.0 and 0.1
-    std = np.random.uniform(0.005, 0.1, 1)
+    std = np.random.uniform(0.01, 0.06, 1)
     # Apply noise on chosen image
     img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
     img_obs = Variable(img_obs).type(dtype)
@@ -164,9 +173,13 @@ for t in range(max_epochs):
 
 print("w1 = ", net.w1.data[0])
 print("w2 = ", net.w2.data[0])
+print("tau = ", net.tau.data[0])
+print("theta = ", net.theta.data[0])
+print("sigma = ", net.sigma.data[0])
+
 std = 0.05
 # Apply noise on chosen image
-img_obs = Variable(GaussianNoiseGenerator().forward(img_ref.data, std).type(dtype))
+img_obs = Variable(torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std), min=0., max=1.)).type(dtype)
 lin_ref = ForwardWeightedGradient().forward(img_ref.type(dtype), net.w)
 grd_ref = ForwardGradient().forward(img_ref)
 img_den = net.forward(img_obs, img_obs).type(dtype)
@@ -174,13 +187,25 @@ lin_den = ForwardWeightedGradient()(img_den, net.w)
 plt.figure()
 n1 = torch.norm(lin_ref, 2, dim=0)
 plt.imshow(n1.data.cpu().numpy())
+plt.title("Linear operator applied on reference image")
 plt.figure()
 n2 = torch.norm(grd_ref, 2, dim=0)
 plt.imshow(n2.data.cpu().numpy())
+plt.title("Gradient operator applied on reference image")
+
 n_w = torch.norm(net.w, 2, dim=0)
 plt.figure()
 plt.imshow(n_w.data.cpu().numpy())
 plt.colorbar()
-plt.title("Norm of Initial Weights of Gradient of Noised image")
+plt.title("Norm of Weights of Gradient of Noised image")
 
+plt.figure()
+plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
+plt.colorbar()
+plt.title("noised image")
+
+plt.figure()
+plt.imshow(np.array(transforms.ToPILImage()((x_pred.data).cpu())))
+plt.colorbar()
+plt.title("denoised image")
 plt.show()
