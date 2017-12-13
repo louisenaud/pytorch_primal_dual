@@ -5,6 +5,7 @@ Created by: louise
 On:         29/11/17
 At:         4:00 PM
 """
+import time
 
 from torch.autograd import Variable
 import torch
@@ -97,6 +98,7 @@ class Net(nn.Module):
         w_term = Variable(torch.exp(-torch.abs(y.data.expand_as(y))))
         self.w = self.w1.expand_as(y) + self.w2.expand_as(y) * w_term
         self.w.type(self.type)
+        self.theta.data.clamp_(0, 5)
         for it in range(self.max_it):
             # Dual update
             y = self.dual_update.forward(x_tilde, y, self.w)
@@ -220,3 +222,69 @@ class PrimalDualNetwork_2(nn.Module):
             self.de = self.energy_dual.forward(y, img_obs, self.w)
 
         return x_tilde
+
+class AverageMeter(object):
+    """
+    Computes and stores the average and current value
+    """
+    def __init__(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def validate(val_loader, model, criterion):
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
+
+    # switch to evaluate mode
+    model.eval()
+
+    end = time.time()
+    for i, (input, target) in enumerate(val_loader):
+        target = target.cuda(async=True)
+        input_var = torch.autograd.Variable(input, volatile=True)
+        target_var = torch.autograd.Variable(target, volatile=True)
+
+        # compute output
+        output = model(input_var)
+        loss = criterion(output, target_var)
+
+        # measure accuracy and record loss
+        prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+        losses.update(loss.data[0], input.size(0))
+        top1.update(prec1[0], input.size(0))
+        top5.update(prec5[0], input.size(0))
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if i % 10 == 0:
+            print('Test: [{0}/{1}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                   i, len(val_loader), batch_time=batch_time, loss=losses,
+                   top1=top1, top5=top5))
+
+    print(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'
+          .format(top1=top1, top5=top5))
+
+    return top1.avg

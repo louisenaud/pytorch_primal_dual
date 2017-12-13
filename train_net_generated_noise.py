@@ -9,6 +9,8 @@ At:         12:27 PM
 import argparse
 import random
 import string
+import os
+import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import png
@@ -53,15 +55,16 @@ parser.add_argument('--max_it', type=int, default=20,
                         help='Number of iterations in the Primal Dual algorithm')
 parser.add_argument('--max_epochs', type=int, default=20000,
                     help='Number of epochs in the Primal Dual Net')
-parser.add_argument('--lambda_rof', type=float, default=7.,
+parser.add_argument('--lambda_rof', type=float, default=3.,
                     help='Step parameter in the ROF model')
 parser.add_argument('--theta', type=int, default=0.8,
                     help='Regularization parameter in the Primal Dual algorithm')
 parser.add_argument('--tau', type=int, default=0.01,
                     help='Step Parameter in Primal')
-parser.add_argument('--save_flag', type=bool, default=False,
+parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
-parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=True)
+parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=False)
+parser.add_argument('--out_folder', help="output folder for images", default="guillaume_non_norm_20k_epochs/")
 args = parser.parse_args()
 
 # Supplemental imports
@@ -75,7 +78,8 @@ max_it = args.max_it
 lambda_rof = args.lambda_rof
 theta = args.theta
 tau = args.tau
-sigma = 1. / (lambda_rof * tau)
+#sigma = 1. / (lambda_rof * tau)
+sigma = 15.0
 batch_size = 1
 m, std =122.11/255., 53.55/255.
 print(m, std)
@@ -122,7 +126,7 @@ plt.title("Norm of Initial Weights of Gradient of Noised image")
 net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
 criterion = torch.nn.MSELoss(size_average=True)
-optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)
+optimizer = torch.optim.Adam(net.parameters(), lr=1e-2)
 params = list(net.parameters())
 loss_history = []
 primal_history = []
@@ -135,8 +139,8 @@ for t in range(max_epochs):
     img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
     #print(img_ref)
     y = ForwardGradient().forward(img_ref)
-    # Pick random noise variance b/w 0.0 and 0.1
-    std = np.random.uniform(0.01, 0.06, 1)
+    # Pick random noise variance in the given range
+    std = np.random.uniform(0.02, 0.2, 1)
     # Apply noise on chosen image
     img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
     img_obs = Variable(img_obs).type(dtype)
@@ -155,21 +159,24 @@ for t in range(max_epochs):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    if it % 10 == 0 and args.log:
+    if it % 5 == 0 and args.log:
         writer.add_scalar('loss', loss.data[0], it)
     it += 1
 
-    if args.save_flag:
-        base_name = id_generator()
-        fn = "results_img_2/" + str(it) + "_" + base_name + "_obs.png"
-        f = open(fn, 'wb')
-        w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
-        w1.write(f, np.array(transforms.ToPILImage()(img_obs.data.cpu())))
-        f.close()
-        fn = "results_img_2/" + str(it) + "_" + base_name + "_den.png"
-        f_res = open(fn, 'wb')
-        w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
-        f_res.close()
+    # if args.save_flag:
+    #     base_name = id_generator()
+    #     folder_name = args.out_folder
+    #     if not os.path.isdir(folder_name):
+    #         os.mkdir(folder_name)
+    #     fn = folder_name + str(it) + "_" + base_name + "_obs.png"
+    #     f = open(fn, 'wb')
+    #     w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
+    #     w1.write(f, np.array(transforms.ToPILImage()(img_obs.data.cpu())))
+    #     f.close()
+    #     fn = folder_name + str(it) + "_" + base_name + "_den.png"
+    #     f_res = open(fn, 'wb')
+    #     w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
+    #     f_res.close()
 
 print("w1 = ", net.w1.data[0])
 print("w2 = ", net.w2.data[0])
@@ -208,4 +215,71 @@ plt.figure()
 plt.imshow(np.array(transforms.ToPILImage()((x_pred.data).cpu())))
 plt.colorbar()
 plt.title("denoised image")
+
+# Plot loss
+plt.figure()
+x = range(len(loss_history))
+plt.plot(x, np.asarray(loss_history))
+plt.title("Loss")
+if args.save_flag:
+    plt.savefig('loss.png')
+
+
+# Validation
+# print("Validation-------------------")
+# net.eval()
+# errors = []
+# for t in range(100):
+#     # Pick random image in dataset
+#     img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
+#     #print(img_ref)
+#     y = ForwardGradient().forward(img_ref)
+#     # Pick random noise variance in the given range
+#     std = np.random.uniform(0.05, 0.2, 1)
+#     # Apply noise on chosen image
+#     img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+#     img_obs = Variable(img_obs).type(dtype)
+#     x = Variable(img_obs.data.clone())
+#     w = Variable(torch.rand(y.size()).type(dtype))
+#     y = ForwardWeightedGradient().forward(x, w)
+#
+#     # Forward pass: Compute predicted image by passing x to the model
+#     x_pred = net(x, img_obs)
+#     # Compute and print loss
+#     loss = criterion(x_pred, img_ref)
+#     errors.append(loss.data[0])
+# print(np.mean(errors))
+
+# Test Guillaume data
+print("Test-------------------")
+net.eval()
+errors = []
+filelist = []
+img_ref = []
+img_path = "/media/louise/data/datasets/ForLouLou/"
+files = glob.glob(img_path + "*.png")
+for fn in files:
+    print("Testing on :", fn)
+    img_pil = Image.open(fn)
+    img_obs = Variable(transforms.ToTensor()(img_pil)).type(dtype)
+    y = ForwardGradient().forward(img_obs)
+
+    x = Variable(img_obs.data.clone())
+    w = Variable(torch.rand(y.size()).type(dtype))
+    y = ForwardWeightedGradient().forward(x, w)
+
+    # Forward pass: Compute predicted image by passing x to the model
+    x_pred = net(x, img_obs)
+
+    if args.save_flag:
+        base_name = os.path.basename(fn)
+        folder_name = args.out_folder
+        if not os.path.isdir(folder_name):
+            os.mkdir(folder_name)
+
+        w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
+        fn = folder_name + base_name + "_den.png"
+        f_res = open(fn, 'wb')
+        w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
+        f_res.close()
 plt.show()
