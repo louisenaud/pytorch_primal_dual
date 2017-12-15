@@ -91,7 +91,6 @@ class Net(nn.Module):
         x_tilde = Variable(img_obs.data.clone()).cuda()
         img_size = img_obs.size()
         y = Variable(torch.ones((img_size[0] + 1, img_size[1], img_size[2]))).cuda()
-        #y = ForwardGradient().forward(x)
 
         # Forward pass
         y = self.linear_op(x)
@@ -111,9 +110,6 @@ class Net(nn.Module):
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
             x_tilde.data.clamp_(0, 1)
-            # Compute energies
-            #self.pe = self.energy_primal.forward(x, img_obs.cuda(), self.w, self.clambda)
-            #self.de = self.energy_dual.forward(y, img_obs, self.w)
 
         return x
 
@@ -164,7 +160,7 @@ class NetGeneratedNoise(nn.Module):
             # Smoothing
             x_tilde = self.primal_reg.forward(x, x_tilde, x_old)
 
-        return x
+        return x_tilde
 
 
 class PrimalDualNetwork_2(nn.Module):
