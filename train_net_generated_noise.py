@@ -51,9 +51,9 @@ def compute_mean_std_data(filelist):
 parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
 parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
-parser.add_argument('--max_it', type=int, default=20,
+parser.add_argument('--max_it', type=int, default=60,
                         help='Number of iterations in the Primal Dual algorithm')
-parser.add_argument('--max_epochs', type=int, default=10000,
+parser.add_argument('--max_epochs', type=int, default=20000,
                     help='Number of epochs in the Primal Dual Net')
 parser.add_argument('--lambda_rof', type=float, default=5.,
                     help='Step parameter in the ROF model')
@@ -65,7 +65,7 @@ parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=False)
 parser.add_argument('--out_folder', help="output folder for images",
-                    default="firetiti__20it_5k_epochs_15narrow_sigma_smooth_loss_lr_10-4/")
+                    default="firetiti__60it_20k_epochs_15narrow_sigma_smooth_loss_lr_10-3/")
 parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 args = parser.parse_args()
@@ -83,7 +83,7 @@ theta = args.theta
 tau = args.tau
 #sigma = 1. / (lambda_rof * tau)
 sigma = 15.0
-batch_size = 8
+batch_size = 4
 m, std =122.11/255., 53.55/255.
 print(m, std)
 
@@ -129,7 +129,7 @@ net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
 criterion = torch.nn.MSELoss(size_average=True)
 criterion_g = torch.nn.MSELoss(size_average=True)
-optimizer = torch.optim.Adam(net.parameters(), lr=1e-4)
+optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
 params = list(net.parameters())
 loss_history = []
 primal_history = []
@@ -138,18 +138,21 @@ gap_history = []
 it = 0
 print(dd.filelist[0])
 img_ref = Variable(train_loader.dataset[0]).type(dtype)
-#std = 0.3 * torch.ones([1])
+std = 0.1 * torch.ones([1])
 for t in range(max_epochs):
     # Pick random image in dataset
 
-    img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
+    #img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
     #print(img_ref)
     y = ForwardGradient().forward(img_ref)
     # Pick random noise variance in the given range
-    std = np.random.uniform(0.05, 0.1, 1)
+    #std = np.random.uniform(0.05, 0.1, 1)
     # Apply noise on chosen image
     img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
     img_obs = Variable(img_obs).type(dtype)
+    # plt.figure(1)
+    # plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
+    # plt.show()
     x = Variable(img_obs.data.clone())
     w = Variable(torch.rand(y.size()).type(dtype))
     y = ForwardWeightedGradient().forward(x, w)
