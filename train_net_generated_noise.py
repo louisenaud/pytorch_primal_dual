@@ -10,6 +10,7 @@ import argparse
 import random
 import string
 import os
+import time
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -53,7 +54,7 @@ parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
 parser.add_argument('--max_it', type=int, default=20,
                         help='Number of iterations in the Primal Dual algorithm')
-parser.add_argument('--max_epochs', type=int, default=1000,
+parser.add_argument('--max_epochs', type=int, default=100,
                     help='Number of epochs in the Primal Dual Net')
 parser.add_argument('--lambda_rof', type=float, default=5.,
                     help='Step parameter in the ROF model')
@@ -65,7 +66,7 @@ parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=False)
 parser.add_argument('--out_folder', help="output folder for images",
-                    default="firetiti__20it_1k_epochs_sigma005_smooth_loss_lr_10-3_batch32/")
+                    default="firetiti__20it_1k_epochs_sigma005_smooth_loss_lr_10-3_batch32_dataset_/")
 parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 args = parser.parse_args()
@@ -83,7 +84,8 @@ theta = args.theta
 tau = args.tau
 #sigma = 1. / (lambda_rof * tau)
 sigma = 15.0
-batch_size = 32
+batch_size = 16
+dataset_size = 20
 m, std =122.11/255., 53.55/255.
 print(m, std)
 
@@ -127,8 +129,8 @@ plt.title("Norm of Initial Weights of Gradient of Noised image")
 
 net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
-criterion = torch.nn.MSELoss(size_average=True)
-criterion_g = torch.nn.MSELoss(size_average=True)
+criterion = torch.nn.MSELoss(size_average=False)
+criterion_g = torch.nn.MSELoss(size_average=False)
 optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
 params = list(net.parameters())
 loss_history = []
@@ -139,34 +141,41 @@ it = 0
 print(dd.filelist[0])
 img_ref = Variable(train_loader.dataset[0]).type(dtype)
 std = 0.05 * torch.ones([1])
+t0 = time.time()
 for t in range(max_epochs):
-    loss_tmp = 0.
-    for k in range(batch_size):
-        # Pick random image in dataset
-        img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
-        #print(img_ref)
-        y = ForwardGradient().forward(img_ref)
-        # Pick random noise variance in the given range
-        #std = np.random.uniform(0.05, 0.1, 1)
-        # Apply noise on chosen image
-        img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
-        img_obs = Variable(img_obs).type(dtype)
-        # plt.figure(1)
-        # plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
-        # plt.show()
-        x = Variable(img_obs.data.clone())
-        w = Variable(torch.rand(y.size()).type(dtype))
-        y = ForwardWeightedGradient().forward(x, w)
+    loss_titi = 0.
+    for titi in range(120):
+        for n in range(dataset_size):
+            loss_tmp = 0.
+            for k in range(batch_size):
+                # Pick random image in dataset
+                img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
+                #print(img_ref)
+                y = ForwardGradient().forward(img_ref)
+                # Pick random noise variance in the given range
+                #std = np.random.uniform(0.05, 0.1, 1)
+                # Apply noise on chosen image
+                img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+                img_obs = Variable(img_obs).type(dtype)
+                # plt.figure(1)
+                # plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
+                # plt.show()
+                x = Variable(img_obs.data.clone())
+                w = Variable(torch.rand(y.size()).type(dtype))
+                y = ForwardWeightedGradient().forward(x, w)
 
-        # Forward pass: Compute predicted image by passing x to the model
-        x_pred = net(x, img_obs)
-        # Compute and print loss
-        g_ref = Variable(ForwardWeightedGradient().forward(img_ref, net.w).data, requires_grad=False)
-        loss_1 = 255. * criterion(x_pred, img_ref)
-        loss_2 = 255. * criterion_g(ForwardWeightedGradient().forward(x_pred, net.w), g_ref)
+                # Forward pass: Compute predicted image by passing x to the model
+                x_pred = net(x, img_obs)
+                # Compute and print loss
+                g_ref = Variable(ForwardWeightedGradient().forward(img_ref, net.w).data, requires_grad=False)
+                loss_1 = 255. * criterion(x_pred, img_ref)
+                loss_2 = 255. * criterion_g(ForwardWeightedGradient().forward(x_pred, net.w), g_ref)
 
-        loss_tmp += loss_1 + loss_2
-    loss = loss_tmp / float(batch_size)
+                loss_tmp += loss_1 + loss_2
+            loss_batch = loss_tmp / float(batch_size)
+    loss_titi = loss_batch / float(dataset_size*200)
+    loss = loss_titi
+    #loss = loss_batch / float(dataset_size)
     loss_history.append(loss.data[0])
     print(t, loss.data[0])
 
@@ -193,7 +202,8 @@ for t in range(max_epochs):
     #     f_res = open(fn, 'wb')
     #     w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
     #     f_res.close()
-
+t1 = time.time()
+print("Elapsed time in minutes :", (t1 - t0) / 60.)
 print("w1 = ", net.w1.data[0])
 print("w2 = ", net.w2.data[0])
 print("tau = ", net.tau.data[0])
@@ -267,36 +277,36 @@ if args.save_flag:
 # print(np.mean(errors))
 
 # Test Guillaume data
-print("Test-------------------")
-net.eval()
-errors = []
-filelist = []
-img_ref = []
-img_path = "/media/louise/data/datasets/ForLouLou/"
-files = glob.glob(img_path + "*.png")
-print(files)
-for fn in files:
-    print("Testing on :", fn)
-    img_pil = Image.open(fn)
-    img_obs = Variable(transforms.ToTensor()(img_pil)).type(dtype)
-    y = ForwardGradient().forward(img_obs)
-
-    x = Variable(img_obs.data.clone())
-    w = Variable(torch.rand(y.size()).type(dtype))
-    y = ForwardWeightedGradient().forward(x, w)
-
-    # Forward pass: Compute predicted image by passing x to the model
-    x_pred = net(x, img_obs)
-
-    if args.save_flag:
-        base_name = os.path.basename(fn)
-        folder_name = args.out_folder
-        if not os.path.isdir(folder_name):
-            os.mkdir(folder_name)
-
-        w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
-        fn = folder_name + base_name + "_den.png"
-        f_res = open(fn, 'wb')
-        w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
-        f_res.close()
+# print("Test-------------------")
+# net.eval()
+# errors = []
+# filelist = []
+# img_ref = []
+# img_path = "/media/louise/data/datasets/ForLouLou/"
+# files = glob.glob(img_path + "*.png")
+# print(files)
+# for fn in files:
+#     print("Testing on :", fn)
+#     img_pil = Image.open(fn)
+#     img_obs = Variable(transforms.ToTensor()(img_pil)).type(dtype)
+#     y = ForwardGradient().forward(img_obs)
+#
+#     x = Variable(img_obs.data.clone())
+#     w = Variable(torch.rand(y.size()).type(dtype))
+#     y = ForwardWeightedGradient().forward(x, w)
+#
+#     # Forward pass: Compute predicted image by passing x to the model
+#     x_pred = net(x, img_obs)
+#
+#     if args.save_flag:
+#         base_name = os.path.basename(fn)
+#         folder_name = args.out_folder
+#         if not os.path.isdir(folder_name):
+#             os.mkdir(folder_name)
+#
+#         w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
+#         fn = folder_name + base_name + "_den.png"
+#         f_res = open(fn, 'wb')
+#         w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
+#         f_res.close()
 plt.show()
