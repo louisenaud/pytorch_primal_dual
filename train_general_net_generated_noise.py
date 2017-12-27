@@ -1,9 +1,9 @@
 """
 Project:    pytorch_primal_dual
-File:       train_net_generated_noise.py
+File:       train_general_net_generated_noise.py
 Created by: louise
-On:         01/12/17
-At:         12:27 PM
+On:         26/12/17
+At:         3:36 PM
 """
 
 import argparse
@@ -72,7 +72,7 @@ parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 parser.add_argument('--random', type=bool, default=False,
                     help='Randomly choose images for the batches')
-parser.add_argument('--range_std', type=bool, default=True,
+parser.add_argument('--range_std', type=bool, default=False,
                     help='Pick random values for the noise standard deviation.')
 parser.add_argument('--poisson', type=bool, default=False,
                         help='noise images with Poisson noise instead of Gaussian Noise')
@@ -158,59 +158,66 @@ for t in range(max_epochs):
     for k in range(batch_size):
         loss_tmp = 0.
         for n in range(dataset_size-1):
-            # Pick random image in dataset
+            # Pick random image in data set
             if args.random:
                 img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
-            else:
+            else:  # Go through data set iteratively
                 img_ref = Variable(train_loader.dataset[n]).type(dtype)
             y = ForwardGradient().forward(img_ref)
             # Pick random noise variance in the given range
-            if args.range_std==True:
+            if args.range_std:
                 std = np.random.uniform(0.05, 0.08, 1)
             else:
                 std = 0.06 * torch.ones([1])
+
             # Apply noise on chosen image
             img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
             img_obs = Variable(img_obs).type(dtype)
+
             # Initialize primal and dual variables, and w
             x = Variable(img_obs.data.clone())
             w = Variable(torch.rand(y.size()).type(dtype))
             y = ForwardWeightedGradient().forward(x, w)
+
             # Forward pass: Compute predicted image by passing x to the model
             x_pred = net(x, img_obs)
-            # Compute and print loss
+
+            # Compute loss
             g_ref = Variable(ForwardWeightedGradient().forward(img_ref, net.w).data, requires_grad=False)
             loss_1 = 255. * criterion(x_pred, img_ref)
             loss_2 = 255. * criterion_g(ForwardWeightedGradient().forward(x_pred, net.w), g_ref)
 
             loss_tmp += loss_1 + loss_2
 
-        # Zero gradients, perform a backward pass, and update the weights.
+        # Zero gradients, perform a backward pass, clip gradient and update the weights.
         optimizer.zero_grad()
         loss_tmp.backward()
-
         torch.nn.utils.clip_grad_norm(net.parameters(), args.clip)
         optimizer.step()
+
+        # Store loss in Tensorboard if available
         if it % 5 == 0 and args.log:
             writer.add_scalar('loss', loss_tmp.data[0], it)
         it += 1
         loss_batch = loss_tmp.data[0] / float(dataset_size)
+    # Decrease learning rate for next epoch
     scheduler.step()
-    #loss_f = loss_batch / float(batch_size)
-    loss_f = loss_batch
+
+    # Store loss in Tensorboard if available
     if args.log:
-        writer.add_scalar('loss_epoch', loss_f, it)
-    loss_history.append(loss_f)
-    print(t, loss_f)
+        writer.add_scalar('loss_epoch', loss_batch, it)
+    loss_history.append(loss_batch)
+    print(t, loss_batch)
 
 
 t1 = time.time()
 print("Elapsed time in minutes :", (t1 - t0) / 60.)
-print("w1 = ", net.w1.data[0])
-print("w2 = ", net.w2.data[0])
-print("tau = ", net.tau.data[0])
-print("theta = ", net.theta.data[0])
-print("sigma = ", net.sigma.data[0])
+print("Learned Primal Dual parameters: ")
+print("w1     = ", net.w1.data[0])
+print("w2     = ", net.w2.data[0])
+print("tau    = ", net.tau.data[0])
+print("theta  = ", net.theta.data[0])
+print("sigma  = ", net.sigma.data[0])
 print("lambda = ", net.clambda.data[0])
 
 # Apply noise on chosen image
@@ -220,30 +227,17 @@ lin_ref = ForwardWeightedGradient().forward(img_ref.type(dtype), net.w)
 grd_ref = ForwardGradient().forward(img_ref)
 img_den = net.forward(img_obs, img_obs).type(dtype)
 lin_den = ForwardWeightedGradient()(img_den, net.w)
-# plt.figure()
-# n1 = torch.norm(lin_ref, 2, dim=0)
-# plt.imshow(n1.data.cpu().numpy())
-# plt.title("Linear operator applied on reference image")
-# plt.figure()
-# n2 = torch.norm(grd_ref, 2, dim=0)
-# plt.imshow(n2.data.cpu().numpy())
-# plt.title("Gradient operator applied on reference image")
-#
-# n_w = torch.norm(net.w, 2, dim=0)
-# plt.figure()
-# plt.imshow(n_w.data.cpu().numpy())
-# plt.colorbar()
-# plt.title("Norm of Weights of Gradient of Noised image")
 
+# Plot some results
 plt.figure()
 plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
 plt.colorbar()
-plt.title("noised image")
+plt.title("Noised image")
 
 plt.figure()
 plt.imshow(np.array(transforms.ToPILImage()((x_pred.data).cpu())))
 plt.colorbar()
-plt.title("denoised image")
+plt.title("Denoised image")
 
 # Plot loss
 plt.figure()
@@ -260,7 +254,6 @@ net.eval()
 errors = []
 for t in range(dataset_size-1):
     # Pick random image in dataset
-    #img_ref = Variable(random.choice(train_loader.dataset)).type(dtype)
     img_ref = Variable(train_loader.dataset[t]).type(dtype)
     y = ForwardGradient().forward(img_ref)
     # Pick random noise variance in the given range

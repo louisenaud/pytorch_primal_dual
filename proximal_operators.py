@@ -16,7 +16,7 @@ class ProximalLinfBall(nn.Module):
 
     def forward(self, p, r, dtype=torch.cuda.FloatTensor):
         """
-
+        Computes the proximal operator of Linf, with parameter r.
         :param p: PyTorch Variable
         :param r: float
         :param dtype: tensor type
@@ -35,7 +35,7 @@ class ProximalL1(nn.Module):
 
     def forward(self, x, f, clambda):
         """
-
+        Computes the proximal operator of L1, with parameter r.
         :param x: PyTorch Variable, [1xMxN]
         :param f: PyTorch Variable, [1xMxN]
         :param clambda: float
@@ -46,14 +46,3 @@ class ProximalL1(nn.Module):
         else:
             res = x + torch.clamp(f - x, -clambda, clambda)
         return res
-
-
-class ProximalL2(nn.Module):
-    def __init__(self, x, f, clambda):
-        super(ProximalL2, self).__init__()
-        self.x = x
-        self.f = f
-        self.clambda = clambda
-
-    def forward(self):
-        return

@@ -12,12 +12,15 @@ import torch.nn.functional as F
 
 
 class ForwardGradient(nn.Module):
+    """
+    Usual forward gradient of an image.
+    """
     def __init__(self):
         super(ForwardGradient, self).__init__()
 
     def forward(self, x, dtype=torch.cuda.FloatTensor):
         """
-
+        Computes the forward gradient of the image.
         :param x: PyTorch Variable [1xMxN]
         :param dtype: Tensor type
         :return: PyTorch Variable [2xMxN]
@@ -37,7 +40,7 @@ class ForwardWeightedGradient(nn.Module):
 
     def forward(self, x, w, dtype=torch.cuda.FloatTensor):
         """
-
+        Computes the forward weighted gradient: wij|xi - xj|
         :param x: PyTorch Variable [1xMxN]
         :param w: PyTorch Variable [2xMxN]
         :param dtype: Tensor type
@@ -59,7 +62,7 @@ class BackwardDivergence(nn.Module):
 
     def forward(self, y, dtype=torch.cuda.FloatTensor):
         """
-
+        Computes the Backward divergence (adjoint operator of Forward Gradient).
         :param y: PyTorch Variable, [2xMxN], dual variable
         :param dtype: Tensor type
         :return: PyTorch Variable [1xMxN], divergence
@@ -88,7 +91,7 @@ class BackwardWeightedDivergence(nn.Module):
 
     def forward(self, y, w, dtype=torch.cuda.FloatTensor):
         """
-
+        Computes the Backward Weighted Divergence (adjoint operator of Forward Weighted Gradient)
         :param y: PyTorch Variable, [2xMxN], dual variable
         :param dtype: tensor type
         :return: PyTorch Variable, [1xMxN], divergence
@@ -110,3 +113,43 @@ class BackwardWeightedDivergence(nn.Module):
         # Divergence
         div = d_h + d_v
         return div
+
+
+class GeneralLinearOperator(nn.Module):
+    def __init__(self):
+        """
+        Constructor of the learnable Linear Operator.
+        """
+        super(GeneralLinearOperator, self).__init__()
+        self.conv1 = nn.Conv2d(1, 2, kernel_size=3, stride=1, padding=1).cuda()
+
+    def forward(self, x):
+        """
+        Function to learn the Linear Operator L with a small CNN.
+        :param x: PyTorch Variable [1xMxN], primal variable.
+        :return: PyTorch Variable [2xMxN], output of learned linear operator
+        """
+        z = Variable(x.data.unsqueeze(0)).cuda()
+        z = self.conv1(z)
+        y = Variable(z.data.squeeze(0).cuda())
+        return y
+
+
+class GeneralLinearAdjointOperator(nn.Module):
+    def __init__(self):
+        """
+        Constructor of the learnable Adjoint Linear Operator.
+        """
+        super(GeneralLinearOperator, self).__init__()
+        self.conv1 = nn.Conv2d(2, 1, kernel_size=3, stride=1, padding=1).cuda()
+
+    def forward(self, y):
+        """
+        Function to learn the Linear Adjoint Operator L with a small CNN.
+        :param x: PyTorch Variable [2xMxN], primal variable.
+        :return: PyTorch Variable [1xMxN], output of learned linear operator
+        """
+        z = Variable(y.data.unsqueeze(0)).cuda()
+        z = self.conv1(z)
+        x = Variable(z.data.squeeze(0).cuda())
+        return x

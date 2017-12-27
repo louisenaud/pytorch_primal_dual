@@ -38,6 +38,7 @@ def psnr(img1, img2):
     pix_max = 255.0
     return 20 * math.log10(pix_max / math.sqrt(mse))
 
+
 if __name__ == '__main__':
     plt.gray()
     parser = argparse.ArgumentParser(description='Run Primal Dual Net.')
