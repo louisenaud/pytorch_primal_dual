@@ -37,9 +37,9 @@ def id_generator(size=6, chars=string.ascii_letters + string.digits):
 
 def compute_mean_std_data(filelist):
     """
-
-    :param filelist:
-    :return:
+    Compute mean and standard deviation of a dataset.
+    :param filelist: list of str
+    :return: tuple of floats
     """
     tensor_list = []
     for file in filelist:
@@ -67,7 +67,7 @@ parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=True)
 parser.add_argument('--out_folder', help="output folder for images",
-                    default="firetiti__20it_50_epochs_sigma005_006_smooth_loss_lr_10-3_batch300_dataset_/")
+                    default="firetiti__20it_50_epochs_sigma006_smooth_loss_lr_10-3_batch100_dataset__/")
 parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 parser.add_argument('--random', type=bool, default=False,
@@ -82,16 +82,16 @@ args = parser.parse_args()
 if args.log:
     from tensorboard import SummaryWriter
     # Keep track of loss in tensorboard
-    writer = SummaryWriter()
+    writer = SummaryWriter("zizi")
 # Set parameters:
 max_epochs = args.max_epochs
 max_it = args.max_it
 lambda_rof = args.lambda_rof
 theta = args.theta
 tau = args.tau
-#sigma = 1. / (lambda_rof * tau)
-sigma = 15.0
-batch_size = 300
+sigma = 1. / (lambda_rof * tau)
+#sigma = 15.0
+batch_size = 100
 dataset_size = 12
 m, std =122.11/255., 53.55/255.
 print(m, std)
@@ -102,7 +102,7 @@ dd = NonNoisyImages("/home/louise/src/blog/pytorch_primal_dual/images/BM3D/", tr
 #m, std = compute_mean_std_dataset(dd.data)
 dtype = torch.cuda.FloatTensor
 
-train_loader = DataLoader(dd, batch_size=1, num_workers=4)
+train_loader = DataLoader(dd, batch_size=1, num_workers=1)
 m1, n1 = compute_mean_std_data(train_loader.dataset.filelist)
 print("m = ", m)
 print("s = ", std)
@@ -135,9 +135,9 @@ plt.title("Norm of Initial Weights of Gradient of Noised image")
 net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
 # loss criterion for data
-criterion = torch.nn.MSELoss(size_average=True)
+criterion = torch.nn.MSELoss(size_average=False)
 # loss criterion for data smoothness
-criterion_g = torch.nn.MSELoss(size_average=True)
+criterion_g = torch.nn.MSELoss(size_average=False)
 # Adam Optimizer with initial learning rate of 1e-3
 optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
 # Scheduler to decrease the leaning rate at each epoch
@@ -220,20 +220,6 @@ lin_ref = ForwardWeightedGradient().forward(img_ref.type(dtype), net.w)
 grd_ref = ForwardGradient().forward(img_ref)
 img_den = net.forward(img_obs, img_obs).type(dtype)
 lin_den = ForwardWeightedGradient()(img_den, net.w)
-# plt.figure()
-# n1 = torch.norm(lin_ref, 2, dim=0)
-# plt.imshow(n1.data.cpu().numpy())
-# plt.title("Linear operator applied on reference image")
-# plt.figure()
-# n2 = torch.norm(grd_ref, 2, dim=0)
-# plt.imshow(n2.data.cpu().numpy())
-# plt.title("Gradient operator applied on reference image")
-#
-# n_w = torch.norm(net.w, 2, dim=0)
-# plt.figure()
-# plt.imshow(n_w.data.cpu().numpy())
-# plt.colorbar()
-# plt.title("Norm of Weights of Gradient of Noised image")
 
 plt.figure()
 plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))

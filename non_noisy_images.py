@@ -10,12 +10,9 @@ import os
 from os.path import abspath
 
 import numpy as np
-import png
 from PIL import Image
 
 import torch
-from torch.autograd import Variable
-import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
 
 

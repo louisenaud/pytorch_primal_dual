@@ -46,3 +46,22 @@ class ProximalL1(nn.Module):
         else:
             res = x + torch.clamp(f - x, -clambda, clambda)
         return res
+
+
+class ProximalQuadraticForm(nn.Module):
+    def __init__(self):
+        super(ProximalQuadraticForm, self).__init__()
+
+    def forward(self, x, H, b, tau):
+        """
+        Computes the proximal operator for a quadratic form 1/2 x^T H + b^T x (+ c)
+        :param x: PyTorch Variable, [1xM*N]
+        :param H: PyTorch Variable, [M*NxM*N]
+        :param b: PyTorch Variable, [1xM*N]
+        :param tau: PyTorch Variable, [1]
+        :return: PyTorch Variable, [1xM*N]
+        """
+        P = tau.expand_as(H) * H + torch.eye(H.size())
+        P_inv = torch.inverse(P)
+        X = x - tau.expandas(b) * b
+        return P_inv.matmul(X)

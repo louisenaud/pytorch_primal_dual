@@ -55,7 +55,7 @@ parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
 parser.add_argument('--max_it', type=int, default=20,
                         help='Number of iterations in the Primal Dual algorithm')
-parser.add_argument('--max_epochs', type=int, default=50,
+parser.add_argument('--max_epochs', type=int, default=100,
                     help='Number of epochs in the Primal Dual Net')
 parser.add_argument('--lambda_rof', type=float, default=5.,
                     help='Step parameter in the ROF model')
@@ -67,7 +67,7 @@ parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=True)
 parser.add_argument('--out_folder', help="output folder for images",
-                    default="firetiti__20it_50_epochs_sigma005_006_smooth_loss_lr_10-3_batch300_dataset_/")
+                    default="firetiti__20it_50_epochs_sigma007_smooth_loss_lr_10-3_batch50_dataset__/")
 parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 parser.add_argument('--random', type=bool, default=False,
@@ -89,9 +89,9 @@ max_it = args.max_it
 lambda_rof = args.lambda_rof
 theta = args.theta
 tau = args.tau
-#sigma = 1. / (lambda_rof * tau)
-sigma = 15.0
-batch_size = 300
+sigma = 1. / (lambda_rof * tau)
+#sigma = 15.0
+batch_size = 50
 dataset_size = 12
 m, std =122.11/255., 53.55/255.
 print(m, std)
@@ -151,7 +151,7 @@ gap_history = []
 it = 0
 # Initialize first image of reference
 img_ref = Variable(train_loader.dataset[0]).type(dtype)
-std = 0.06 * torch.ones([1])
+std = 0.08 * torch.ones([1])
 t0 = time.time()
 y = ForwardGradient().forward(img_ref)
 for t in range(max_epochs):
@@ -168,7 +168,7 @@ for t in range(max_epochs):
             if args.range_std:
                 std = np.random.uniform(0.05, 0.08, 1)
             else:
-                std = 0.06 * torch.ones([1])
+                std = 0.08 * torch.ones([1])
 
             # Apply noise on chosen image
             img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
@@ -257,7 +257,8 @@ for t in range(dataset_size-1):
     img_ref = Variable(train_loader.dataset[t]).type(dtype)
     y = ForwardGradient().forward(img_ref)
     # Pick random noise variance in the given range
-    std = np.random.uniform(0.05, 0.08, 1)
+    if args.range_std:
+        std = np.random.uniform(0.05, 0.08, 1)
     # Apply noise on chosen image
     img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
     img_obs = Variable(img_obs).type(dtype)

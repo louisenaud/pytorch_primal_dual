@@ -181,8 +181,10 @@ class DualGeneralUpdate(nn.Module):
         :return: PyTorch Variable, [2xMxN]
         """
         if y.is_cuda:
-            y = y + self.sigma * self.forward_grad.forward(x_tilde, dtype=torch.cuda.FloatTensor)
+            y = y + self.sigma * self.forward_grad.forward(x_tilde,
+                                                           dtype=torch.cuda.FloatTensor)
         else:
-            y = y + self.sigma * self.forward_grad.forward(x_tilde, dtype=torch.FloatTensor)
+            y = y + self.sigma * self.forward_grad.forward(x_tilde,
+                                                           dtype=torch.FloatTensor)
         return y
 
