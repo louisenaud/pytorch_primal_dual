@@ -28,7 +28,7 @@ import torch.nn as nn
 
 from data_io import NonNoisyImages
 from linear_operators import ForwardGradient, ForwardWeightedGradient
-from primal_dual_models import Net, GaussianNoiseGenerator
+from primal_dual_models import Net, GaussianNoiseGenerator, PoissonNoiseGenerator
 
 
 def id_generator(size=6, chars=string.ascii_letters + string.digits):
@@ -55,7 +55,7 @@ parser.add_argument('--use_cuda', type=bool, default=True,
                         help='Flag to use CUDA, if available')
 parser.add_argument('--max_it', type=int, default=20,
                         help='Number of iterations in the Primal Dual algorithm')
-parser.add_argument('--max_epochs', type=int, default=50,
+parser.add_argument('--max_epochs', type=int, default=5,
                     help='Number of epochs in the Primal Dual Net')
 parser.add_argument('--lambda_rof', type=float, default=5.,
                     help='Step parameter in the ROF model')
@@ -67,22 +67,22 @@ parser.add_argument('--save_flag', type=bool, default=True,
                     help='Flag to save or not the result images')
 parser.add_argument('--log', type=bool, help="Flag to log loss in tensorboard", default=True)
 parser.add_argument('--out_folder', help="output folder for images",
-                    default="firetiti__20it_50_epochs_sigma006_smooth_loss_lr_10-3_batch100_dataset__/")
+                    default="firetiti__poisson_batch100_dataset_5/")
 parser.add_argument('--clip', type=float, default=0.1,
                     help='Value of clip for gradient clipping')
 parser.add_argument('--random', type=bool, default=False,
                     help='Randomly choose images for the batches')
 parser.add_argument('--range_std', type=bool, default=True,
                     help='Pick random values for the noise standard deviation.')
-parser.add_argument('--poisson', type=bool, default=False,
-                        help='noise images with Poisson noise instead of Gaussian Noise')
+parser.add_argument('--noise', type=str, default="poisson",
+                        help='noise images with given noise - "normal" or "poisson" ')
 args = parser.parse_args()
 
 # Supplemental imports
 if args.log:
     from tensorboard import SummaryWriter
     # Keep track of loss in tensorboard
-    writer = SummaryWriter("zizi")
+    writer = SummaryWriter("zizi_poisson__")
 # Set parameters:
 max_epochs = args.max_epochs
 max_it = args.max_it
@@ -91,7 +91,7 @@ theta = args.theta
 tau = args.tau
 sigma = 1. / (lambda_rof * tau)
 #sigma = 15.0
-batch_size = 100
+batch_size = 1
 dataset_size = 12
 m, std =122.11/255., 53.55/255.
 print(m, std)
@@ -99,18 +99,17 @@ print(m, std)
 # Transform dataset
 transformations = transforms.Compose([transforms.Scale((512, 512)), transforms.ToTensor()])
 dd = NonNoisyImages("/home/louise/src/blog/pytorch_primal_dual/images/BM3D/", transform=transformations)
-#m, std = compute_mean_std_dataset(dd.data)
 dtype = torch.cuda.FloatTensor
 
-train_loader = DataLoader(dd, batch_size=1, num_workers=1)
+train_loader = DataLoader(dd, batch_size=batch_size, num_workers=4)
 m1, n1 = compute_mean_std_data(train_loader.dataset.filelist)
 print("m = ", m)
 print("s = ", std)
 # set up primal and dual variables
-img_obs = Variable(train_loader.dataset[0])  # Init img_obs with first image in the data set
-x = Variable(img_obs.data.clone().type(dtype))
-x_tilde = Variable(img_obs.data.clone().type(dtype))
-img_size = img_obs.size()
+img_obs_ = Variable(train_loader.dataset[0])  # Init img_obs with first image in the data set
+x = Variable(img_obs_.data.clone().type(dtype))
+x_tilde = Variable(img_obs_.data.clone().type(dtype))
+img_size = img_obs_.size()
 y = Variable(torch.zeros((img_size[0] + 1, img_size[1], img_size[2])).type(dtype))
 y = ForwardGradient().forward(x)
 g_ref = y.clone()
@@ -135,13 +134,13 @@ plt.title("Norm of Initial Weights of Gradient of Noised image")
 net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
 # loss criterion for data
-criterion = torch.nn.MSELoss(size_average=False)
+criterion = torch.nn.MSELoss(size_average=True)
 # loss criterion for data smoothness
-criterion_g = torch.nn.MSELoss(size_average=False)
+criterion_g = torch.nn.MSELoss(size_average=True)
 # Adam Optimizer with initial learning rate of 1e-3
-optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)
 # Scheduler to decrease the leaning rate at each epoch
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.01)
 params = list(net.parameters())
 # Store losses and energies for plotting
 loss_history = []
@@ -154,6 +153,7 @@ img_ref = Variable(train_loader.dataset[0]).type(dtype)
 std = 0.06 * torch.ones([1])
 t0 = time.time()
 y = ForwardGradient().forward(img_ref)
+poisson = 5.
 for t in range(max_epochs):
     for k in range(batch_size):
         loss_tmp = 0.
@@ -165,12 +165,16 @@ for t in range(max_epochs):
                 img_ref = Variable(train_loader.dataset[n]).type(dtype)
             y = ForwardGradient().forward(img_ref)
             # Pick random noise variance in the given range
-            if args.range_std==True:
+            if args.range_std:
                 std = np.random.uniform(0.05, 0.08, 1)
             else:
                 std = 0.06 * torch.ones([1])
             # Apply noise on chosen image
-            img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+            if args.noise == "normal":
+                img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+            elif args.noise == "poisson":
+                img_obs = PoissonNoiseGenerator().forward(img_ref.data, poisson)
+
             img_obs = Variable(img_obs).type(dtype)
             # Initialize primal and dual variables, and w
             x = Variable(img_obs.data.clone())
@@ -215,14 +219,19 @@ print("lambda = ", net.clambda.data[0])
 
 # Apply noise on chosen image
 std_f = 0.06
-img_obs = Variable(torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std_f), min=0., max=1.)).type(dtype)
+if args.noise == "normal":
+    img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std_f), min=0.0, max=1.0).type(dtype)
+elif args.noise == "poisson":
+    img_obs = torch.clamp(PoissonNoiseGenerator().forward(img_ref.data, std_f), min=0.0, max=1.0).type(dtype)
+
+#img_obs = Variable(torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std_f), min=0., max=1.)).type(dtype)
 lin_ref = ForwardWeightedGradient().forward(img_ref.type(dtype), net.w)
 grd_ref = ForwardGradient().forward(img_ref)
-img_den = net.forward(img_obs, img_obs).type(dtype)
+img_den = net.forward(Variable(img_obs), Variable(img_obs)).type(dtype)
 lin_den = ForwardWeightedGradient()(img_den, net.w)
 
 plt.figure()
-plt.imshow(np.array(transforms.ToPILImage()((img_obs.data).cpu())))
+plt.imshow(np.array(transforms.ToPILImage()((img_obs).cpu())))
 plt.colorbar()
 plt.title("noised image")
 
@@ -252,7 +261,11 @@ for t in range(dataset_size-1):
     # Pick random noise variance in the given range
     std = np.random.uniform(0.05, 0.08, 1)
     # Apply noise on chosen image
-    img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+    if args.noise == "normal":
+        img_obs = torch.clamp(GaussianNoiseGenerator().forward(img_ref.data, std[0]), min=0.0, max=1.0)
+    elif args.noise == "poisson":
+        img_obs = torch.clamp(PoissonNoiseGenerator().forward(img_ref.data, poisson), min=0.0, max=1.0)
+
     img_obs = Variable(img_obs).type(dtype)
     x = Variable(img_obs.data.clone())
     w = Variable(torch.rand(y.size()).type(dtype))
@@ -310,7 +323,7 @@ for fn in files:
             os.mkdir(folder_name)
 
         w1 = png.Writer(img_obs.size()[2], img_obs.size()[1], greyscale=True)
-        fn = folder_name + base_name + "_den.png"
+        fn = folder_name + base_name + "_den_teeeeest.png"
         f_res = open(fn, 'wb')
         w1.write(f_res, np.array(transforms.ToPILImage()(x_pred.data.cpu())))
         f_res.close()

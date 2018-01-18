@@ -7,6 +7,7 @@ At:         4:00 PM
 """
 import numpy as np
 from numpy import random
+import matplotlib.pyplot as plt
 from torch.autograd import Variable
 import torch
 import torch.nn as nn
@@ -67,7 +68,7 @@ class PoissonNoiseGenerator(nn.Module):
     def __init__(self):
         super(PoissonNoiseGenerator, self).__init__()
 
-    def forward(self, img, param=500., dtype=torch.cuda.FloatTensor):
+    def forward(self, img, param=100., dtype=torch.cuda.FloatTensor):
         """
         Function to create random Poisson noise on an image.
         :param img:
@@ -75,12 +76,17 @@ class PoissonNoiseGenerator(nn.Module):
         :param dtype:
         :return:
         """
-        img_np = np.array(transforms.ToPILImage()(img.data.cpu()))
+        img_np = img.cpu().numpy()
+        img_np = img_np.astype(float)
         poissonNoise = random.poisson(param, img_np.shape).astype(float)
+        prout = poissonNoise / 255.
 
-        noisy_img = img + poissonNoise
-        noisy_img_pytorch = Variable(transforms.ToTensor()(noisy_img).type(dtype))
-        return noisy_img_pytorch
+        noisy_img = img_np + prout
+        # plt.figure()
+        # plt.imshow(noisy_img[0, :, :])
+        # plt.show()
+        noisy_img_pytorch = torch.from_numpy(np.clip(noisy_img * 255., 0., 255.))
+        return noisy_img_pytorch.type(dtype)
 
 
 class Net(nn.Module):

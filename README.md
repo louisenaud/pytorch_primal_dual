@@ -8,7 +8,7 @@ You can pip install of each of the following packages:
 
 - png: to save images
 - pillow: to manipulate images
-- matplotlib: to view grpahs and images
+- matplotlib: to view graphs and images
 
 This code heavily relies on PyTorch with CUDA backends. You can find the installer at:
     http://pytorch.org/
