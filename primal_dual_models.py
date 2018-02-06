@@ -77,15 +77,21 @@ class PoissonNoiseGenerator(nn.Module):
         :return:
         """
         img_np = img.cpu().numpy()
+        vals = len(np.unique(img_np))
+        vals = 2 ** np.ceil(np.log2(vals))
+
+        PEAK = 0.5
+        noisy = np.random.poisson(img_np * 255.0 * PEAK) / PEAK / 255
         img_np = img_np.astype(float)
         poissonNoise = random.poisson(param, img_np.shape).astype(float)
         prout = poissonNoise / 255.
 
-        noisy_img = img_np + prout
+
+        noisy_img = img_np + noisy - np.max(img_np)
         # plt.figure()
         # plt.imshow(noisy_img[0, :, :])
         # plt.show()
-        noisy_img_pytorch = torch.from_numpy(np.clip(noisy_img * 255., 0., 255.))
+        noisy_img_pytorch = torch.from_numpy(noisy_img)
         return noisy_img_pytorch.type(dtype)
 
 

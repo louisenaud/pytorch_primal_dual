@@ -1,9 +1,9 @@
 """
 Project:    pytorch_primal_dual
-File:       train_net_generated_noise.py
+File:       train_net_generated_noise_em_images.py
 Created by: louise
-On:         01/12/17
-At:         12:27 PM
+On:         19/01/18
+At:         1:06 PM
 """
 
 import argparse
@@ -82,7 +82,7 @@ args = parser.parse_args()
 if args.log:
     from tensorboard import SummaryWriter
     # Keep track of loss in tensorboard
-    writer = SummaryWriter("zizi_poisson__")
+    writer = SummaryWriter("zizi_poisson__gt_synth")
 # Set parameters:
 max_epochs = args.max_epochs
 max_it = args.max_it
@@ -98,7 +98,7 @@ print(m, std)
 
 # Transform dataset
 transformations = transforms.Compose([transforms.Scale((512, 512)), transforms.ToTensor()])
-dd = NonNoisyImages("/home/louise/src/blog/pytorch_primal_dual/images/BM3D/", transform=transformations)
+dd = NonNoisyImages("/media/louise/data/datasets/ForLouLou/resized_original/", transform=transformations)
 dtype = torch.cuda.FloatTensor
 
 train_loader = DataLoader(dd, batch_size=batch_size, num_workers=4)
@@ -127,9 +127,10 @@ theta = nn.Parameter(theta*torch.ones([1]).type(dtype))
 
 n_w = torch.norm(w, 2, dim=0)
 plt.figure()
-plt.imshow(n_w.data.cpu().numpy())
+plt.imshow(img_obs_.data.squeeze(0).cpu().numpy())
 plt.colorbar()
-plt.title("Norm of Initial Weights of Gradient of Noised image")
+plt.title("image1")
+plt.show()
 
 net = Net(w1, w2, w, max_it, lambda_rof, sigma, tau, theta)
 
@@ -153,7 +154,7 @@ img_ref = Variable(train_loader.dataset[0]).type(dtype)
 std = 0.06 * torch.ones([1])
 t0 = time.time()
 y = ForwardGradient().forward(img_ref)
-poisson = 65.
+poisson = 100.
 for t in range(max_epochs):
     for k in range(batch_size):
         loss_tmp = 0.
@@ -200,7 +201,6 @@ for t in range(max_epochs):
         it += 1
         loss_batch = loss_tmp.data[0] / float(dataset_size)
     scheduler.step()
-    #loss_f = loss_batch / float(batch_size)
     loss_f = loss_batch
     if args.log:
         writer.add_scalar('loss_epoch', loss_f, it)
